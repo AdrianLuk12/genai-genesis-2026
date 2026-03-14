@@ -2,19 +2,46 @@
 
 On-demand, isolated sandbox environments for a target e-commerce app. Spin up Docker containers from scenario templates, interact with the app, and save the resulting state as reusable templates.
 
-Three services:
+Repository services/apps:
 
 | Service | Stack | Port |
 |---|---|---|
 | `control-panel-ui` | Next.js, Tailwind, shadcn/ui | 3000 |
 | `control-panel-api` | Python FastAPI, docker-py, SQLite/IBM Db2 | 8000 |
 | `target-app-template` | Next.js, SQLite, Faker.js | 3000 (inside containers, mapped to 8001–8050) |
+| `recruitment-management-app` | Next.js App Router, TypeScript, custom CSS design system | 3002 |
+
+## Documentation Index
+
+- [Control Panel UI docs](control-panel-ui/README.md)
+- [Recruitment app docs](recruitment-management-app/README.md)
+- [Target app template docs](target-app-template/README.md)
+
+## OpenSpec
+
+- Specs and change history live under `openspec/`
+- Active/archived changes are tracked in `openspec/changes/`
+- Baseline specs are in `openspec/specs/`
+
+## Repository Layout
+
+- `control-panel-api/` — provisioning and scenario/sandbox API
+- `control-panel-ui/` — primary control panel UI for scenario/sandbox management
+- `target-app-template/` — containerized sample storefront app used for sandbox launches
+- `recruitment-management-app/` — standalone recruitment domain sample app (user/admin split)
 
 ## Prerequisites
 
 - **Node.js** 20+
 - **Python** 3.11+
 - **Docker Engine** running locally
+
+## Quick Start (Core Platform)
+
+1. Build the target app Docker image.
+2. Start `control-panel-api` on `8000`.
+3. Start `control-panel-ui` on `3000`.
+4. Open `http://localhost:3000`.
 
 ## 1. Target App — Build Docker Image
 
@@ -57,6 +84,12 @@ source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
+If you run from repo root, use:
+
+```bash
+python -m uvicorn --app-dir control-panel-api app.main:app --reload --port 8000
+```
+
 The API auto-creates its local database and file storage in `control-panel-api/data/` on first run when using SQLite mode. Db2 mode requires IBM Cloud Db2 credentials.
 
 API docs at http://localhost:8000/docs.
@@ -81,6 +114,19 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+## 4. Recruitment Management App (Standalone Sample)
+
+```bash
+cd recruitment-management-app
+npm install
+cp .env.example .env
+npm run dev -- --port 3002
+```
+
+Open http://localhost:3002.
+
+See [recruitment-management-app/README.md](recruitment-management-app/README.md) for route structure, auth flow, and API details.
 
 ## Usage
 

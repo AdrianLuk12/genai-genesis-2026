@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Target App Template
 
-## Getting Started
+Containerized sample storefront app used by the Sandbox Platform when launching sandboxes.
 
-First, run the development server:
+## Stack
+
+- Next.js App Router
+- SQLite (`better-sqlite3`)
+- Faker-based seed generation
+
+## Local Development
 
 ```bash
+cd target-app-template
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Data Seeding
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `npm run seed` seeds `data/store.db`
+- On `npm start`, `scripts/entrypoint.js` seeds automatically if DB does not exist
 
-## Learn More
+## Docker (used by control-panel-api)
 
-To learn more about Next.js, take a look at the following resources:
+Build image:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+docker build -t sandbox-target-app .
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Run manually:
 
-## Deploy on Vercel
+```bash
+docker run --rm -p 3000:3000 sandbox-target-app
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The API launches this image and maps container `3000` to host ports `8001-8050`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Build / Lint
+
+```bash
+npm run build
+npm run lint
+```
+
