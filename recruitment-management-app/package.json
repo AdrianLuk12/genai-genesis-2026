@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/entrypoint.js && next start",
+    "seed": "npx tsx src/lib/seed.ts",
     "lint": "eslint"
   },
   "dependencies": {
@@ -13,9 +14,12 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "better-sqlite3": "^12.8.0",
+    "@faker-js/faker": "^9.9.0",
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^20",
     "@types/react": "^19",

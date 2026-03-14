@@ -188,5 +188,20 @@ if (require.main === module) {
     }
   }
 
+  if (process.env.SEED_COUNT) {
+    const count = parseInt(process.env.SEED_COUNT, 10);
+    if (!isNaN(count) && count > 0) {
+      if (config.product_count === undefined) {
+        config.product_count = count;
+      }
+      if (config.buyer_count === undefined) {
+        config.buyer_count = Math.ceil(count * 1.2);
+      }
+      if (config.order_count === undefined) {
+        config.order_count = Math.ceil(count * 1.6);
+      }
+    }
+  }
+
   seed(dbPath, config);
 }

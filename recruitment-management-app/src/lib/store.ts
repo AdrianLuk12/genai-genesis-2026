@@ -1,336 +1,110 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import db from "@/lib/db";
 
-import { Candidate, Interview, Job, Store } from "@/lib/types";
+import { Candidate, Interview, Job } from "@/lib/types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "recruitment.json");
+/* ── Jobs ────────────────────────────────────────────────── */
 
-function isoDaysAgo(days: number) {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+export async function listJobs(): Promise<Job[]> {
+  return db.prepare("SELECT * FROM jobs ORDER BY createdAt DESC").all() as Job[];
 }
 
-function buildSeedJobs(): Job[] {
-  return [
-    {
-      id: crypto.randomUUID(),
-      title: "Senior Software Engineer",
-      department: "Engineering",
-      location: "Austin, TX",
-      status: "Open",
-      openings: 2,
-      createdAt: isoDaysAgo(24),
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "Data Analyst",
-      department: "Analytics",
-      location: "Remote",
-      status: "Open",
-      openings: 1,
-      createdAt: isoDaysAgo(19),
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "Product Designer",
-      department: "Design",
-      location: "San Francisco, CA",
-      status: "Open",
-      openings: 1,
-      createdAt: isoDaysAgo(14),
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "Technical Recruiter",
-      department: "People",
-      location: "New York, NY",
-      status: "Paused",
-      openings: 1,
-      createdAt: isoDaysAgo(10),
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "DevOps Engineer",
-      department: "Platform",
-      location: "Remote",
-      status: "Open",
-      openings: 2,
-      createdAt: isoDaysAgo(7),
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "QA Automation Engineer",
-      department: "Quality",
-      location: "Chicago, IL",
-      status: "Closed",
-      openings: 1,
-      createdAt: isoDaysAgo(4),
-    },
-  ];
+export async function getJobById(id: string): Promise<Job | null> {
+  return (db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as Job) ?? null;
 }
 
-function buildSeedCandidates(jobs: Job[]): Candidate[] {
-  if (jobs.length === 0) {
-    return [];
-  }
-
-  const templates: Array<Pick<Candidate, "name" | "email" | "stage" | "score">> = [
-    { name: "Ava Chen", email: "ava.chen@example.com", stage: "Applied", score: 72 },
-    { name: "Noah Patel", email: "noah.patel@example.com", stage: "Screening", score: 79 },
-    { name: "Mia Johnson", email: "mia.johnson@example.com", stage: "Interview", score: 86 },
-    { name: "Liam Rivera", email: "liam.rivera@example.com", stage: "Offer", score: 91 },
-    { name: "Sophia Kim", email: "sophia.kim@example.com", stage: "Hired", score: 94 },
-    { name: "Ethan Brooks", email: "ethan.brooks@example.com", stage: "Rejected", score: 61 },
-    { name: "Isabella Nguyen", email: "isabella.nguyen@example.com", stage: "Applied", score: 70 },
-    { name: "Lucas Walker", email: "lucas.walker@example.com", stage: "Screening", score: 83 },
-    { name: "Charlotte Diaz", email: "charlotte.diaz@example.com", stage: "Interview", score: 88 },
-    { name: "James Lee", email: "james.lee@example.com", stage: "Offer", score: 90 },
-    { name: "Amelia Turner", email: "amelia.turner@example.com", stage: "Hired", score: 95 },
-    { name: "Benjamin Green", email: "benjamin.green@example.com", stage: "Rejected", score: 65 },
-  ];
-
-  return templates.map((template, index) => ({
-    id: crypto.randomUUID(),
-    name: template.name,
-    email: template.email,
-    stage: template.stage,
-    jobId: jobs[index % jobs.length].id,
-    score: template.score,
-    createdAt: isoDaysAgo(18 - Math.min(index, 17)),
-  }));
-}
-
-function buildSeedInterviews(candidates: Candidate[]): Interview[] {
-  const interviewable = candidates.filter(
-    (candidate) => candidate.stage === "Interview" || candidate.stage === "Offer" || candidate.stage === "Hired",
-  );
-
-  const interviewers = [
-    "Taylor Morgan",
-    "Jordan Smith",
-    "Casey Thompson",
-    "Alex Kim",
-    "Riley Martin",
-  ];
-
-  const types: Interview["type"][] = ["Phone", "Technical", "Panel", "Final"];
-  const statuses: Interview["status"][] = ["Completed", "Completed", "Scheduled", "Scheduled", "Canceled"];
-
-  return interviewable.map((candidate, index) => ({
-    id: crypto.randomUUID(),
-    candidateId: candidate.id,
-    jobId: candidate.jobId,
-    type: types[index % types.length],
-    scheduledAt: new Date(Date.now() + (index - 3) * 12 * 60 * 60 * 1000).toISOString(),
-    interviewer: interviewers[index % interviewers.length],
-    status: statuses[index % statuses.length],
-  }));
-}
-
-function buildSeedStore(): Store {
-  const jobs = buildSeedJobs();
-  const candidates = buildSeedCandidates(jobs);
-  const interviews = buildSeedInterviews(candidates);
-
-  return {
-    jobs,
-    candidates,
-    interviews,
-  };
-}
-
-async function ensureStore() {
-  await mkdir(DATA_DIR, { recursive: true });
-  try {
-    await readFile(DATA_FILE, "utf8");
-  } catch {
-    await writeFile(DATA_FILE, JSON.stringify(buildSeedStore(), null, 2), "utf8");
-  }
-}
-
-async function readStore(): Promise<Store> {
-  await ensureStore();
-  const raw = await readFile(DATA_FILE, "utf8");
-  const parsed = JSON.parse(raw) as Store;
-
-  let changed = false;
-
-  if (!Array.isArray(parsed.jobs) || parsed.jobs.length === 0) {
-    parsed.jobs = buildSeedJobs();
-    changed = true;
-  }
-
-  if (!Array.isArray(parsed.candidates) || parsed.candidates.length === 0) {
-    parsed.candidates = buildSeedCandidates(parsed.jobs);
-    changed = true;
-  }
-
-  if (!Array.isArray(parsed.interviews) || parsed.interviews.length === 0) {
-    parsed.interviews = buildSeedInterviews(parsed.candidates);
-    changed = true;
-  }
-
-  if (changed) {
-    await saveStore(parsed);
-  }
-
-  return parsed;
-}
-
-async function saveStore(store: Store) {
-  await writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
-}
-
-export async function listJobs() {
-  const store = await readStore();
-  return store.jobs;
-}
-
-export async function getJobById(id: string) {
-  const store = await readStore();
-  return store.jobs.find((job) => job.id === id) ?? null;
-}
-
-export async function createJob(input: Omit<Job, "id" | "createdAt">) {
-  const store = await readStore();
+export async function createJob(input: Omit<Job, "id" | "createdAt">): Promise<Job> {
   const item: Job = {
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     ...input,
   };
-  store.jobs.unshift(item);
-  await saveStore(store);
+  db.prepare(
+    "INSERT INTO jobs (id, title, department, location, status, openings, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(item.id, item.title, item.department, item.location, item.status, item.openings, item.createdAt);
   return item;
 }
 
-export async function updateJobStatus(id: string, status: Job["status"]) {
-  const store = await readStore();
-  const index = store.jobs.findIndex((job) => job.id === id);
-
-  if (index === -1) {
-    return null;
-  }
-
-  store.jobs[index] = {
-    ...store.jobs[index],
-    status,
-  };
-  await saveStore(store);
-  return store.jobs[index];
+export async function updateJobStatus(id: string, status: Job["status"]): Promise<Job | null> {
+  const result = db.prepare("UPDATE jobs SET status = ? WHERE id = ?").run(status, id);
+  if (result.changes === 0) return null;
+  return (db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as Job) ?? null;
 }
 
-export async function deleteJob(id: string) {
-  const store = await readStore();
-  const before = store.jobs.length;
-  store.jobs = store.jobs.filter((job) => job.id !== id);
-
-  if (before === store.jobs.length) {
-    return false;
-  }
-
-  store.candidates = store.candidates.filter((candidate) => candidate.jobId !== id);
-  store.interviews = store.interviews.filter((interview) => interview.jobId !== id);
-
-  await saveStore(store);
-  return true;
+export async function deleteJob(id: string): Promise<boolean> {
+  const result = db.prepare("DELETE FROM jobs WHERE id = ?").run(id);
+  return result.changes > 0;
 }
 
-export async function listCandidates() {
-  const store = await readStore();
-  return store.candidates;
+/* ── Candidates ──────────────────────────────────────────── */
+
+export async function listCandidates(): Promise<Candidate[]> {
+  return db.prepare("SELECT * FROM candidates ORDER BY createdAt DESC").all() as Candidate[];
 }
 
-export async function createCandidate(input: Omit<Candidate, "id" | "createdAt">) {
-  const store = await readStore();
+export async function createCandidate(input: Omit<Candidate, "id" | "createdAt">): Promise<Candidate> {
   const item: Candidate = {
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     ...input,
   };
-  store.candidates.unshift(item);
-  await saveStore(store);
+  db.prepare(
+    "INSERT INTO candidates (id, name, email, stage, jobId, score, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(item.id, item.name, item.email, item.stage, item.jobId, item.score, item.createdAt);
   return item;
 }
 
-export async function updateCandidateStage(id: string, stage: Candidate["stage"]) {
-  const store = await readStore();
-  const index = store.candidates.findIndex((candidate) => candidate.id === id);
-
-  if (index === -1) {
-    return null;
-  }
-
-  store.candidates[index] = {
-    ...store.candidates[index],
-    stage,
-  };
-  await saveStore(store);
-  return store.candidates[index];
+export async function updateCandidateStage(id: string, stage: Candidate["stage"]): Promise<Candidate | null> {
+  const result = db.prepare("UPDATE candidates SET stage = ? WHERE id = ?").run(stage, id);
+  if (result.changes === 0) return null;
+  return (db.prepare("SELECT * FROM candidates WHERE id = ?").get(id) as Candidate) ?? null;
 }
 
-export async function deleteCandidate(id: string) {
-  const store = await readStore();
-  const before = store.candidates.length;
-  store.candidates = store.candidates.filter((candidate) => candidate.id !== id);
-
-  if (before === store.candidates.length) {
-    return false;
-  }
-
-  store.interviews = store.interviews.filter((interview) => interview.candidateId !== id);
-  await saveStore(store);
-  return true;
+export async function deleteCandidate(id: string): Promise<boolean> {
+  const result = db.prepare("DELETE FROM candidates WHERE id = ?").run(id);
+  return result.changes > 0;
 }
 
-export async function listInterviews() {
-  const store = await readStore();
-  return store.interviews;
+/* ── Interviews ──────────────────────────────────────────── */
+
+export async function listInterviews(): Promise<Interview[]> {
+  return db.prepare("SELECT * FROM interviews").all() as Interview[];
 }
 
-export async function createInterview(input: Omit<Interview, "id">) {
-  const store = await readStore();
+export async function createInterview(input: Omit<Interview, "id">): Promise<Interview> {
   const item: Interview = {
     id: crypto.randomUUID(),
     ...input,
   };
-  store.interviews.unshift(item);
-  await saveStore(store);
+  db.prepare(
+    "INSERT INTO interviews (id, candidateId, jobId, type, scheduledAt, interviewer, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(item.id, item.candidateId, item.jobId, item.type, item.scheduledAt, item.interviewer, item.status);
   return item;
 }
 
-export async function updateInterviewStatus(id: string, status: Interview["status"]) {
-  const store = await readStore();
-  const index = store.interviews.findIndex((interview) => interview.id === id);
-
-  if (index === -1) {
-    return null;
-  }
-
-  store.interviews[index] = {
-    ...store.interviews[index],
-    status,
-  };
-  await saveStore(store);
-  return store.interviews[index];
+export async function updateInterviewStatus(id: string, status: Interview["status"]): Promise<Interview | null> {
+  const result = db.prepare("UPDATE interviews SET status = ? WHERE id = ?").run(status, id);
+  if (result.changes === 0) return null;
+  return (db.prepare("SELECT * FROM interviews WHERE id = ?").get(id) as Interview) ?? null;
 }
 
-export async function deleteInterview(id: string) {
-  const store = await readStore();
-  const before = store.interviews.length;
-  store.interviews = store.interviews.filter((interview) => interview.id !== id);
-
-  if (before === store.interviews.length) {
-    return false;
-  }
-
-  await saveStore(store);
-  return true;
+export async function deleteInterview(id: string): Promise<boolean> {
+  const result = db.prepare("DELETE FROM interviews WHERE id = ?").run(id);
+  return result.changes > 0;
 }
+
+/* ── Metrics ─────────────────────────────────────────────── */
 
 export async function getMetrics() {
-  const store = await readStore();
+  const openJobs = (db.prepare("SELECT COUNT(*) as count FROM jobs WHERE status = 'Open'").get() as { count: number }).count;
+  const candidates = (db.prepare("SELECT COUNT(*) as count FROM candidates").get() as { count: number }).count;
+  const interviewsScheduled = (db.prepare("SELECT COUNT(*) as count FROM interviews WHERE status = 'Scheduled'").get() as { count: number }).count;
+  const offers = (db.prepare("SELECT COUNT(*) as count FROM candidates WHERE stage = 'Offer'").get() as { count: number }).count;
+  const hires = (db.prepare("SELECT COUNT(*) as count FROM candidates WHERE stage = 'Hired'").get() as { count: number }).count;
 
-  const stageCounts = {
+  const avgRow = db.prepare("SELECT AVG(score) as avg FROM candidates").get() as { avg: number | null };
+  const avgCandidateScore = avgRow.avg ? Math.round(avgRow.avg) : 0;
+
+  const stageCounts: Record<string, number> = {
     Applied: 0,
     Screening: 0,
     Interview: 0,
@@ -339,29 +113,23 @@ export async function getMetrics() {
     Rejected: 0,
   };
 
-  for (const candidate of store.candidates) {
-    stageCounts[candidate.stage] += 1;
+  const stageRows = db.prepare("SELECT stage, COUNT(*) as count FROM candidates GROUP BY stage").all() as { stage: string; count: number }[];
+  for (const row of stageRows) {
+    stageCounts[row.stage] = row.count;
   }
 
-  const avgCandidateScore =
-    store.candidates.length === 0
-      ? 0
-      : Math.round(
-          store.candidates.reduce((acc, candidate) => acc + candidate.score, 0) /
-            store.candidates.length,
-        );
+  const upcomingInterviews = db.prepare(
+    "SELECT * FROM interviews WHERE status = 'Scheduled' ORDER BY scheduledAt ASC LIMIT 8"
+  ).all() as Interview[];
 
   return {
-    openJobs: store.jobs.filter((job) => job.status === "Open").length,
-    candidates: store.candidates.length,
-    interviewsScheduled: store.interviews.filter((interview) => interview.status === "Scheduled").length,
-    offers: store.candidates.filter((candidate) => candidate.stage === "Offer").length,
-    hires: stageCounts.Hired,
+    openJobs,
+    candidates,
+    interviewsScheduled,
+    offers,
+    hires,
     avgCandidateScore,
     stageCounts,
-    upcomingInterviews: store.interviews
-      .filter((interview) => interview.status === "Scheduled")
-      .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))
-      .slice(0, 8),
+    upcomingInterviews,
   };
 }
