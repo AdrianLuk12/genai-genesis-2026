@@ -191,6 +191,28 @@ def _init_sqlite_db():
             app_version_id TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        
+        CREATE TABLE IF NOT EXISTS qa_runs (
+            id TEXT PRIMARY KEY,
+            app_version_id TEXT NOT NULL,
+            scenario_id TEXT,
+            status TEXT DEFAULT 'pending',
+            started_at TEXT,
+            completed_at TEXT,
+            video_url TEXT,
+            issues_found INTEGER DEFAULT 0,
+            log_output TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS qa_results (
+            id TEXT PRIMARY KEY,
+            qa_run_id TEXT NOT NULL,
+            element_id TEXT,
+            issue_type TEXT,
+            description TEXT,
+            screenshot_url TEXT,
+            severity TEXT DEFAULT 'medium'
+        );
     """
     )
 
@@ -293,6 +315,38 @@ def _init_db2_db():
                 status VARCHAR(32) DEFAULT 'running',
                 app_version_id VARCHAR(64),
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
+            )
+            """
+        )
+
+    if not _table_exists_db2(conn, "qa_runs"):
+        cursor.execute(
+            """
+            CREATE TABLE qa_runs (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                app_version_id VARCHAR(64) NOT NULL,
+                scenario_id VARCHAR(64),
+                status VARCHAR(32) DEFAULT 'pending',
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                video_url VARCHAR(1024),
+                issues_found INTEGER DEFAULT 0,
+                log_output CLOB(1M)
+            )
+            """
+        )
+        
+    if not _table_exists_db2(conn, "qa_results"):
+        cursor.execute(
+            """
+            CREATE TABLE qa_results (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                qa_run_id VARCHAR(64) NOT NULL,
+                element_id VARCHAR(255),
+                issue_type VARCHAR(128),
+                description CLOB(1M),
+                screenshot_url VARCHAR(1024),
+                severity VARCHAR(32) DEFAULT 'medium'
             )
             """
         )

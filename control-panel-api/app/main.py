@@ -1042,6 +1042,57 @@ Determine the next action."""
         raise HTTPException(status_code=500, detail=f"AI agent error: {str(e)}")
 
 
+class QARunCreate(BaseModel):
+    scenario_id: Optional[str] = None
+    
+@app.post("/api/apps/{version_id}/qa-run")
+def start_qa_run(version_id: str, payload: QARunCreate):
+    db_conn = get_db()
+    run_id = f"qa_{uuid.uuid4().hex[:8]}"
+    db_conn.execute(
+        """
+        INSERT INTO qa_runs (id, app_version_id, scenario_id, status, started_at)
+        VALUES (?, ?, ?, 'running', datetime('now'))
+        """,
+        (run_id, version_id, payload.scenario_id)
+    )
+    db_conn.commit()
+    return {"id": run_id, "status": "running"}
+
+@app.get("/api/qa-runs/{run_id}")
+def get_qa_run(run_id: str):
+    db_conn = get_db()
+    run = db_conn.execute("SELECT * FROM qa_runs WHERE id = ?", (run_id,)).fetchone()
+    if not run:
+        raise HTTPException(status_code=404, detail="QA run not found")
+        
+    results = db_conn.execute("SELECT * FROM qa_results WHERE qa_run_id = ?", (run_id,)).fetchall()
+    run["results"] = results
+    return run
+
+class QAResultCreate(BaseModel):
+    element_id: Optional[str] = None
+    issue_type: str
+    description: str
+    screenshot_url: Optional[str] = None
+    severity: str = 'medium'
+
+@app.post("/api/qa-runs/{run_id}/results")
+def add_qa_result(run_id: str, payload: QAResultCreate):
+    db_conn = get_db()
+    result_id = f"res_{uuid.uuid4().hex[:8]}"
+    
+    db_conn.execute(
+        """
+        INSERT INTO qa_results (id, qa_run_id, element_id, issue_type, description, screenshot_url, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (result_id, run_id, payload.element_id, payload.issue_type, payload.description, payload.screenshot_url, payload.severity)
+    )
+    db_conn.commit()
+    return {"id": result_id, "status": "added"}
+
+
 # --- Static files (bridge.js for walkthrough capture) ---
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
