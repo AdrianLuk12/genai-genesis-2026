@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditName } from "@/components/ui/edit-name-modal";
 import {
   Pencil,
   Play,
@@ -143,14 +142,39 @@ export default function SandboxViewPage() {
   const autoAgentIntent = searchParams.get("agent");
 
   const { confirm } = useConfirm();
-  const editName = useEditName();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [sandboxReady, setSandboxReady] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [pollKey, setPollKey] = useState(0);
+
+  // Inline prompt (replaces browser prompt())
+  const [inlinePrompt, setInlinePrompt] = useState<{ label: string; value: string } | null>(null);
+  const inlinePromptResolveRef = useRef<((v: string | null) => void) | null>(null);
+
+  function showInlinePrompt(label: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      inlinePromptResolveRef.current = resolve;
+      setInlinePrompt({ label, value: defaultValue });
+    });
+  }
+
+  function submitInlinePrompt() {
+    inlinePromptResolveRef.current?.(inlinePrompt?.value ?? null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
+
+  function cancelInlinePrompt() {
+    inlinePromptResolveRef.current?.(null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
 
   // Nav bar state
   const [iframePath, setIframePath] = useState("/");
@@ -350,19 +374,24 @@ export default function SandboxViewPage() {
 
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
-  async function renameSandbox() {
+  function startRename() {
     if (!sandbox) return;
-    const newName = await editName({
-      title: "Rename Sandbox",
-      currentName: sandbox.name || "",
-    });
-    if (newName === null) return;
+    setNameDraft(sandbox.name || `Sandbox :${sandbox.port}`);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    if (!sandbox) return;
+    setEditingName(false);
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === sandbox.name) return;
     const prev = { ...sandbox };
-    setSandbox((s) => (s ? { ...s, name: newName || null } : s));
+    setSandbox((s) => (s ? { ...s, name: trimmed } : s));
     try {
       await api(`/api/sandboxes/${containerId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: trimmed }),
       });
     } catch {
       setSandbox(prev);
@@ -371,7 +400,7 @@ export default function SandboxViewPage() {
 
   async function saveState() {
     const defaultName = "Scenario - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save State", currentName: defaultName });
+    const name = await showInlinePrompt("Save State", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -396,7 +425,7 @@ export default function SandboxViewPage() {
       return;
     }
     const defaultName = "Workflow - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save Workflow", currentName: defaultName });
+    const name = await showInlinePrompt("Save Workflow", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -744,16 +773,32 @@ export default function SandboxViewPage() {
             <ArrowLeft className="size-3.5" />
           </Button>
         </Link>
-        <button
-          type="button"
-          className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
-          onClick={renameSandbox}
-        >
-          <span className="text-sm font-semibold">
-            {sandbox.name || `Sandbox :${sandbox.port}`}
-          </span>
-          <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-        </button>
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") setEditingName(false);
+            }}
+            size={Math.max(nameDraft.length, 1)}
+            className="text-sm font-semibold bg-transparent border-b border-onyx-green outline-none shrink-0"
+            autoFocus
+          />
+        ) : (
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
+            onClick={startRename}
+          >
+            <span className="text-sm font-semibold">
+              {sandbox.name || `Sandbox :${sandbox.port}`}
+            </span>
+            <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+          </button>
+        )}
         <Badge variant="success" className="shrink-0">
           <span className="size-1.5 rounded-full bg-current mr-0.5" />
           {sandbox.status}
@@ -864,6 +909,28 @@ export default function SandboxViewPage() {
           </Button>
         </div>
       </div>
+
+      {/* Inline prompt */}
+      {inlinePrompt && (
+        <div className="bg-card border-b border-border px-4 py-2.5 shrink-0 animate-fade-in-scale">
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitInlinePrompt(); }}
+            className="flex gap-2 items-center"
+          >
+            <span className="text-xs font-medium text-muted-foreground shrink-0">{inlinePrompt.label}</span>
+            <input
+              type="text"
+              value={inlinePrompt.value}
+              onChange={(e) => setInlinePrompt({ ...inlinePrompt, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Escape") cancelInlinePrompt(); }}
+              className="flex-1 h-8 px-3 text-sm bg-background border border-input outline-none focus:border-ring"
+              autoFocus
+            />
+            <Button type="submit" variant="onyx" size="xs">Save</Button>
+            <Button type="button" variant="ghost" size="xs" onClick={cancelInlinePrompt}>Cancel</Button>
+          </form>
+        </div>
+      )}
 
       {/* Agent input */}
       {agentShowInput && !agentRunning && (

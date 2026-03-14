@@ -1,17 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditScenario } from "@/components/ui/edit-name-modal";
 import {
-  ArrowLeft,
   Box,
   ChevronDown,
   ChevronRight,
@@ -25,7 +22,6 @@ import {
   Workflow,
   Package,
 } from "lucide-react";
-import Link from "next/link";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -114,12 +110,17 @@ export default function AppDetailPage() {
   const [showScenarioForm, setShowScenarioForm] = useState<Record<string, boolean>>({});
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioDescription, setScenarioDescription] = useState("");
-  const [scenarioConfigJson, setScenarioConfigJson] = useState("{}");
+  const [scenarioStartUrl, setScenarioStartUrl] = useState("/");
+  const [scenarioEnvRows, setScenarioEnvRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
 
   const [launching, setLaunching] = useState<string | null>(null);
 
   const { confirm } = useConfirm();
-  const editScenario = useEditScenario();
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
 
   const loadApp = useCallback(async () => {
     try {
@@ -177,20 +178,45 @@ export default function AppDetailPage() {
     }
   }
 
-  async function renameApp() {
+  function startRename() {
     if (!app) return;
-    const result = await editScenario({
-      title: "Edit App",
-      currentName: app.name,
-      currentDescription: app.description,
-    });
-    if (!result) return;
+    setNameDraft(app.name);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    setEditingName(false);
+    if (!app) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === app.name) return;
     const prev = { ...app };
-    setApp({ ...app, name: result.name || app.name, description: result.description });
+    setApp({ ...app, name: trimmed });
     try {
       await api(`/api/apps/${appId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: result.name, description: result.description }),
+        body: JSON.stringify({ name: trimmed }),
+      });
+    } catch {
+      setApp(prev);
+    }
+  }
+
+  function startEditDesc() {
+    if (!app) return;
+    setDescDraft(app.description);
+    setEditingDesc(true);
+  }
+
+  async function commitDesc() {
+    setEditingDesc(false);
+    if (!app || descDraft === app.description) return;
+    const prev = { ...app };
+    setApp({ ...app, description: descDraft });
+    try {
+      await api(`/api/apps/${appId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ description: descDraft }),
       });
     } catch {
       setApp(prev);
@@ -276,24 +302,76 @@ export default function AppDetailPage() {
 
   async function createScenario(e: React.FormEvent, versionId: string) {
     e.preventDefault();
+    const env: Record<string, string> = {};
+    for (const row of scenarioEnvRows) {
+      if (row.key.trim()) env[row.key.trim()] = row.value;
+    }
     try {
-      const parsed = JSON.parse(scenarioConfigJson);
       await api("/api/scenarios", {
         method: "POST",
         body: JSON.stringify({
           name: scenarioName,
           description: scenarioDescription,
-          config_json: parsed,
+          config_json: { start_url: scenarioStartUrl, env },
           app_version_id: versionId,
         }),
       });
       setScenarioName("");
       setScenarioDescription("");
-      setScenarioConfigJson("{}");
+      setScenarioStartUrl("/");
+      setScenarioEnvRows([{ key: "", value: "" }]);
       setShowScenarioForm((prev) => ({ ...prev, [versionId]: false }));
       loadVersionScenarios(versionId);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create scenario");
+    }
+  }
+
+  function updateScenarioEnvRow(index: number, field: "key" | "value", val: string) {
+    setScenarioEnvRows((prev) => {
+      const next = prev.map((r, i) => i === index ? { ...r, [field]: val } : r);
+      if (index === next.length - 1 && (next[index].key || next[index].value)) {
+        next.push({ key: "", value: "" });
+      }
+      return next;
+    });
+  }
+
+  function removeScenarioEnvRow(index: number) {
+    setScenarioEnvRows((prev) => prev.length > 1 ? prev.filter((_, i) => i !== index) : [{ key: "", value: "" }]);
+  }
+
+  async function renameScenario(scenarioId: string, name: string, versionId: string) {
+    setVersionScenarios((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).map((s) =>
+        s.id === scenarioId ? { ...s, name } : s
+      ),
+    }));
+    try {
+      await api(`/api/scenarios/${scenarioId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+    } catch {
+      loadVersionScenarios(versionId);
+    }
+  }
+
+  async function renameWorkflow(workflowId: string, name: string, versionId: string) {
+    setVersionWorkflows((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).map((w) =>
+        w.id === workflowId ? { ...w, name } : w
+      ),
+    }));
+    try {
+      await api(`/api/workflows/${workflowId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+    } catch {
+      loadVersionWorkflows(versionId);
     }
   }
 
@@ -371,12 +449,6 @@ export default function AppDetailPage() {
   if (!app) {
     return (
       <div className="space-y-6">
-        <Link href="/apps">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="size-4" />
-            Back to Apps
-          </Button>
-        </Link>
         <div className="py-16 flex flex-col items-center gap-3">
           <Box className="size-8 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">App not found</p>
@@ -387,30 +459,55 @@ export default function AppDetailPage() {
 
   return (
     <div className="space-y-8">
-      {/* Back button */}
-      <div className="animate-fade-in">
-        <Link href="/apps">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="size-4" />
-            Back to Apps
-          </Button>
-        </Link>
-      </div>
-
       {/* App header */}
       <div className="flex items-start justify-between animate-fade-in-up">
         <div>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-2xl font-semibold hover:text-onyx-green transition-colors group"
-            onClick={renameApp}
-          >
-            {app.name}
-            <Pencil className="size-4 opacity-0 group-hover:opacity-50 transition-opacity" />
-          </button>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {app.description || "No description"}
-          </p>
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setEditingName(false);
+              }}
+              size={Math.max(nameDraft.length, 1)}
+              className="text-2xl font-semibold bg-transparent border-b border-onyx-green outline-none"
+              autoFocus
+            />
+          ) : (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-2xl font-semibold hover:text-onyx-green transition-colors group"
+              onClick={startRename}
+            >
+              {app.name}
+              <Pencil className="size-4 opacity-0 group-hover:opacity-50 transition-opacity" />
+            </button>
+          )}
+          {editingDesc ? (
+            <input
+              value={descDraft}
+              onChange={(e) => setDescDraft(e.target.value)}
+              onBlur={commitDesc}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitDesc();
+                if (e.key === "Escape") setEditingDesc(false);
+              }}
+              size={Math.max(descDraft.length, 20)}
+              className="text-sm text-muted-foreground mt-0.5 bg-transparent border-b border-onyx-green outline-none"
+              autoFocus
+            />
+          ) : (
+            <button
+              type="button"
+              className="text-sm text-muted-foreground mt-0.5 hover:text-foreground transition-colors text-left"
+              onClick={startEditDesc}
+            >
+              {app.description || "Add a description..."}
+            </button>
+          )}
         </div>
         <Button variant="destructive" size="sm" onClick={deleteApp}>
           <Trash2 className="size-4" />
@@ -601,7 +698,8 @@ export default function AppDetailPage() {
                       showingScenarioForm={showingScenarioForm}
                       scenarioName={scenarioName}
                       scenarioDescription={scenarioDescription}
-                      scenarioConfigJson={scenarioConfigJson}
+                      scenarioStartUrl={scenarioStartUrl}
+                      scenarioEnvRows={scenarioEnvRows}
                       launching={launching}
                       onToggle={() => toggleVersion(ver.id)}
                       onDeleteVersion={() => deleteVersion(ver.id)}
@@ -609,15 +707,19 @@ export default function AppDetailPage() {
                         setShowScenarioForm((prev) => ({ ...prev, [ver.id]: !prev[ver.id] }));
                         setScenarioName("");
                         setScenarioDescription("");
-                        setScenarioConfigJson("{}");
+                        setScenarioStartUrl("/");
+                        setScenarioEnvRows([{ key: "", value: "" }]);
                       }}
                       onScenarioNameChange={setScenarioName}
                       onScenarioDescriptionChange={setScenarioDescription}
-                      onScenarioConfigJsonChange={setScenarioConfigJson}
+                      onScenarioStartUrlChange={setScenarioStartUrl}
+                      onScenarioEnvRowsChange={setScenarioEnvRows}
                       onCreateScenario={(e) => createScenario(e, ver.id)}
                       onDeleteScenario={(scenarioId) => deleteScenario(scenarioId, ver.id)}
+                      onRenameScenario={(scenarioId, name) => renameScenario(scenarioId, name, ver.id)}
                       onLaunchSandbox={launchSandbox}
                       onDeleteWorkflow={(workflowId) => deleteWorkflow(workflowId, ver.id)}
+                      onRenameWorkflow={(workflowId, name) => renameWorkflow(workflowId, name, ver.id)}
                       onReplayWorkflow={replayWorkflow}
                     />
                   );
@@ -641,18 +743,22 @@ interface VersionRowProps {
   showingScenarioForm: boolean;
   scenarioName: string;
   scenarioDescription: string;
-  scenarioConfigJson: string;
+  scenarioStartUrl: string;
+  scenarioEnvRows: { key: string; value: string }[];
   launching: string | null;
   onToggle: () => void;
   onDeleteVersion: () => void;
   onToggleScenarioForm: () => void;
   onScenarioNameChange: (v: string) => void;
   onScenarioDescriptionChange: (v: string) => void;
-  onScenarioConfigJsonChange: (v: string) => void;
+  onScenarioStartUrlChange: (v: string) => void;
+  onScenarioEnvRowsChange: (rows: { key: string; value: string }[]) => void;
   onCreateScenario: (e: React.FormEvent) => void;
   onDeleteScenario: (scenarioId: string) => void;
+  onRenameScenario: (scenarioId: string, name: string) => void;
   onLaunchSandbox: (scenarioId: string) => void;
   onDeleteWorkflow: (workflowId: string) => void;
+  onRenameWorkflow: (workflowId: string, name: string) => void;
   onReplayWorkflow: (workflow: WorkflowEntry) => void;
 }
 
@@ -664,20 +770,39 @@ function VersionRow({
   showingScenarioForm,
   scenarioName,
   scenarioDescription,
-  scenarioConfigJson,
+  scenarioStartUrl,
+  scenarioEnvRows,
   launching,
   onToggle,
   onDeleteVersion,
   onToggleScenarioForm,
   onScenarioNameChange,
   onScenarioDescriptionChange,
-  onScenarioConfigJsonChange,
+  onScenarioStartUrlChange,
+  onScenarioEnvRowsChange,
   onCreateScenario,
   onDeleteScenario,
+  onRenameScenario,
   onLaunchSandbox,
   onDeleteWorkflow,
+  onRenameWorkflow,
   onReplayWorkflow,
 }: VersionRowProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  function startEdit(id: string, current: string) {
+    setEditingId(id);
+    setDraft(current);
+  }
+
+  function commitEdit(id: string, type: "scenario" | "workflow") {
+    setEditingId(null);
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    if (type === "scenario") onRenameScenario(id, trimmed);
+    else onRenameWorkflow(id, trimmed);
+  }
   return (
     <>
       <tr className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
@@ -769,15 +894,55 @@ function VersionRow({
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                          Config JSON
+                          Starting URL
                         </label>
-                        <Textarea
-                          value={scenarioConfigJson}
-                          onChange={(e) => onScenarioConfigJsonChange(e.target.value)}
-                          rows={3}
-                          className="font-mono text-xs"
-                          placeholder='{"product_count": 10}'
+                        <Input
+                          value={scenarioStartUrl}
+                          onChange={(e) => onScenarioStartUrlChange(e.target.value)}
+                          placeholder="/"
+                          className="font-mono"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                          Environment Variables
+                        </label>
+                        <div className="space-y-1.5">
+                          {scenarioEnvRows.map((row, i) => (
+                            <div key={i} className="flex gap-2 items-center">
+                              <Input
+                                value={row.key}
+                                onChange={(e) => {
+                                  const next = scenarioEnvRows.map((r, j) => j === i ? { ...r, key: e.target.value } : r);
+                                  if (i === next.length - 1 && (next[i].key || next[i].value)) next.push({ key: "", value: "" });
+                                  onScenarioEnvRowsChange(next);
+                                }}
+                                placeholder="KEY"
+                                className="font-mono flex-1"
+                              />
+                              <span className="text-muted-foreground text-xs">=</span>
+                              <Input
+                                value={row.value}
+                                onChange={(e) => {
+                                  const next = scenarioEnvRows.map((r, j) => j === i ? { ...r, value: e.target.value } : r);
+                                  if (i === next.length - 1 && (next[i].key || next[i].value)) next.push({ key: "", value: "" });
+                                  onScenarioEnvRowsChange(next);
+                                }}
+                                placeholder="value"
+                                className="font-mono flex-1"
+                              />
+                              {scenarioEnvRows.length > 1 && row.key && (
+                                <button
+                                  type="button"
+                                  onClick={() => onScenarioEnvRowsChange(scenarioEnvRows.filter((_, j) => j !== i))}
+                                  className="text-muted-foreground hover:text-destructive text-xs px-1"
+                                >
+                                  &times;
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                       <div className="flex justify-end">
                         <Button type="submit" variant="onyx" size="sm">Create Scenario</Button>
@@ -799,7 +964,6 @@ function VersionRow({
                         <tr className="border-b border-border bg-muted/30">
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Name</th>
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Description</th>
-                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Config</th>
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Created</th>
                           <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Actions</th>
                         </tr>
@@ -811,18 +975,36 @@ function VersionRow({
                             className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                           >
                             {launching === sc.id && (
-                              <td colSpan={5} className="absolute inset-0">
+                              <td colSpan={4} className="absolute inset-0">
                                 <LaunchOverlay />
                               </td>
                             )}
-                            <td className="py-2.5 px-3 font-medium">{sc.name}</td>
+                            <td className="py-2.5 px-3 font-medium">
+                              {editingId === sc.id ? (
+                                <input
+                                  value={draft}
+                                  onChange={(e) => setDraft(e.target.value)}
+                                  onBlur={() => commitEdit(sc.id, "scenario")}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") commitEdit(sc.id, "scenario");
+                                    if (e.key === "Escape") setEditingId(null);
+                                  }}
+                                  size={Math.max(draft.length, 1)}
+                                  className="text-sm font-medium bg-transparent border-b border-onyx-green outline-none"
+                                  autoFocus
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="hover:text-onyx-green transition-colors"
+                                  onClick={() => startEdit(sc.id, sc.name)}
+                                >
+                                  {sc.name}
+                                </button>
+                              )}
+                            </td>
                             <td className="py-2.5 px-3 text-muted-foreground max-w-[160px] truncate">
                               {sc.description || "---"}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 max-w-[120px] truncate block">
-                                {JSON.stringify(sc.config_json)}
-                              </code>
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                               {new Date(sc.created_at).toLocaleDateString()}
@@ -875,7 +1057,6 @@ function VersionRow({
                       <thead>
                         <tr className="border-b border-border bg-muted/30">
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Name</th>
-                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Steps</th>
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Start Scenario</th>
                           <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Created</th>
                           <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Actions</th>
@@ -888,15 +1069,36 @@ function VersionRow({
                             className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                           >
                             {launching === wf.scenario_id && (
-                              <td colSpan={5} className="absolute inset-0">
+                              <td colSpan={4} className="absolute inset-0">
                                 <LaunchOverlay />
                               </td>
                             )}
-                            <td className="py-2.5 px-3 font-medium">{wf.name}</td>
-                            <td className="py-2.5 px-3">
-                              <Badge variant="secondary" className="text-[10px]">
-                                {Array.isArray(wf.steps_json) ? wf.steps_json.length : 0}
-                              </Badge>
+                            <td className="py-2.5 px-3 font-medium">
+                              {editingId === wf.id ? (
+                                <input
+                                  value={draft}
+                                  onChange={(e) => setDraft(e.target.value)}
+                                  onBlur={() => commitEdit(wf.id, "workflow")}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") commitEdit(wf.id, "workflow");
+                                    if (e.key === "Escape") setEditingId(null);
+                                  }}
+                                  size={Math.max(draft.length, 1)}
+                                  className="text-sm font-medium bg-transparent border-b border-onyx-green outline-none"
+                                  autoFocus
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="hover:text-onyx-green transition-colors"
+                                  onClick={() => startEdit(wf.id, wf.name)}
+                                >
+                                  {wf.name}
+                                  <span className="text-xs text-muted-foreground font-normal ml-1.5">
+                                    ({Array.isArray(wf.steps_json) ? wf.steps_json.length : 0} steps)
+                                  </span>
+                                </button>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground">
                               {scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}

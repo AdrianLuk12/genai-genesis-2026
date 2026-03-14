@@ -6,15 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditScenario } from "@/components/ui/edit-name-modal";
 import {
   Box,
   Trash2,
-  Pencil,
   Plus,
   X,
   Search,
-  Eye,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -34,7 +31,6 @@ export default function AppsPage() {
   const [description, setDescription] = useState("");
   const [search, setSearch] = useState("");
   const { confirm } = useConfirm();
-  const editScenario = useEditScenario();
 
   useEffect(() => {
     loadApps();
@@ -45,7 +41,6 @@ export default function AppsPage() {
     try {
       const data: App[] = await api("/api/apps");
       setApps(data);
-      // Fetch version counts for each app
       const counts: Record<string, number> = {};
       await Promise.all(
         data.map(async (app) => {
@@ -78,31 +73,6 @@ export default function AppsPage() {
       loadApps();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create app");
-    }
-  }
-
-  async function renameApp(app: App) {
-    const result = await editScenario({
-      title: "Edit App",
-      currentName: app.name,
-      currentDescription: app.description,
-    });
-    if (!result) return;
-    const prev = apps.map((a) => ({ ...a }));
-    setApps((list) =>
-      list.map((a) =>
-        a.id === app.id
-          ? { ...a, name: result.name || a.name, description: result.description }
-          : a
-      )
-    );
-    try {
-      await api(`/api/apps/${app.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: result.name, description: result.description }),
-      });
-    } catch {
-      setApps(prev);
     }
   }
 
@@ -166,7 +136,7 @@ export default function AppsPage() {
 
       {/* Create form */}
       {showForm && (
-        <div className="bg-card rounded-none border border-border p-6 animate-fade-in-scale">
+        <div className="bg-card border border-border p-6 animate-fade-in-scale">
           <h3 className="font-semibold mb-4">Create App</h3>
           <form onSubmit={createApp} className="space-y-4">
             <div>
@@ -214,7 +184,7 @@ export default function AppsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-card rounded-none border border-border overflow-hidden animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+      <div className="bg-card border border-border overflow-hidden animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         {filtered.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3">
             <Box className="size-8 text-muted-foreground/40" />
@@ -245,16 +215,12 @@ export default function AppsPage() {
                   className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                 >
                   <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
-                        onClick={() => renameApp(app)}
-                      >
-                        {app.name}
-                        <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
-                      </button>
-                    </div>
+                    <Link
+                      href={`/apps/${app.id}`}
+                      className="font-medium hover:text-onyx-green transition-colors"
+                    >
+                      {app.name}
+                    </Link>
                   </td>
                   <td className="py-3 px-4 text-muted-foreground max-w-[200px] truncate">
                     {app.description || "---"}
@@ -269,12 +235,6 @@ export default function AppsPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-1">
-                      <Link href={`/apps/${app.id}`}>
-                        <Button variant="onyx" size="xs">
-                          <Eye className="size-3" />
-                          View
-                        </Button>
-                      </Link>
                       <Button
                         variant="ghost"
                         size="icon-xs"

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Query, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
@@ -355,6 +356,31 @@ async def get_workflow(workflow_id: str):
     db.close()
     if not row:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    return row_to_dict(row)
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = None
+
+
+@app.patch("/api/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, body: WorkflowUpdate):
+    db = get_db()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    updates = []
+    params = []
+    if body.name is not None:
+        updates.append("name = ?")
+        params.append(body.name)
+    if updates:
+        params.append(workflow_id)
+        db.execute(f"UPDATE workflows SET {', '.join(updates)} WHERE id = ?", params)
+        db.commit()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    db.close()
     return row_to_dict(row)
 
 
