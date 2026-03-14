@@ -34,35 +34,35 @@ export default function AdminPage() {
   }, []);
 
   if (!stats) {
-    return <section className="panel">Loading admin dashboard...</section>;
+    return <section className="panel" data-testid="admin-dashboard-loading">Loading admin dashboard...</section>;
   }
 
   return (
-    <section className="stack">
-      <header className="page-head">
+    <section className="stack" data-testid="admin-dashboard-page">
+      <header className="page-head" data-testid="admin-dashboard-header">
         <div>
           <p className="eyebrow-light">Admin management surface</p>
-          <h2 className="title">Recruitment Admin Dashboard</h2>
+          <h2 className="title title-contrast">Recruitment Admin Dashboard</h2>
         </div>
         <div className="link-group">
-          <Link href="/admin/jobs" className="link-btn">Manage Jobs</Link>
-          <Link href="/admin/candidates" className="link-btn">Manage Candidates</Link>
-          <Link href="/admin/interviews" className="link-btn">Manage Interviews</Link>
+          <Link href="/admin/jobs" className="link-btn" data-testid="admin-manage-jobs-link">Manage Jobs</Link>
+          <Link href="/admin/candidates" className="link-btn" data-testid="admin-manage-candidates-link">Manage Candidates</Link>
+          <Link href="/admin/interviews" className="link-btn" data-testid="admin-manage-interviews-link">Manage Interviews</Link>
         </div>
       </header>
 
-      <section className="metrics-grid">
-        <article className="panel"><p className="metric-label">Open Jobs</p><p className="metric-value">{stats.openJobs}</p></article>
-        <article className="panel"><p className="metric-label">Candidates</p><p className="metric-value">{stats.candidates}</p></article>
-        <article className="panel"><p className="metric-label">Scheduled Interviews</p><p className="metric-value">{stats.interviewsScheduled}</p></article>
-        <article className="panel"><p className="metric-label">Offers</p><p className="metric-value">{stats.offers}</p></article>
-        <article className="panel"><p className="metric-label">Hires</p><p className="metric-value">{stats.hires}</p></article>
-        <article className="panel"><p className="metric-label">Avg Score</p><p className="metric-value">{stats.avgCandidateScore}</p></article>
+      <section className="metrics-grid" data-testid="admin-metrics-grid">
+        <article className="panel" data-testid="metric-open-jobs"><p className="metric-label">Open Jobs</p><p className="metric-value">{stats.openJobs}</p></article>
+        <article className="panel" data-testid="metric-candidates"><p className="metric-label">Candidates</p><p className="metric-value">{stats.candidates}</p></article>
+        <article className="panel" data-testid="metric-scheduled-interviews"><p className="metric-label">Scheduled Interviews</p><p className="metric-value">{stats.interviewsScheduled}</p></article>
+        <article className="panel" data-testid="metric-offers"><p className="metric-label">Offers</p><p className="metric-value">{stats.offers}</p></article>
+        <article className="panel" data-testid="metric-hires"><p className="metric-label">Hires</p><p className="metric-value">{stats.hires}</p></article>
+        <article className="panel" data-testid="metric-avg-score"><p className="metric-label">Avg Score</p><p className="metric-value">{stats.avgCandidateScore}</p></article>
       </section>
 
-      <article className="panel">
+      <article className="panel" data-testid="candidate-stage-distribution">
         <h3 className="panel-title">Candidate Stage Distribution</h3>
-        <table>
+        <table data-testid="candidate-stage-table">
           <thead>
             <tr><th>Stage</th><th>Count</th></tr>
           </thead>

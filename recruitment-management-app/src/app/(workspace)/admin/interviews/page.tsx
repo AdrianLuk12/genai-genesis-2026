@@ -80,37 +80,38 @@ export default function AdminInterviewsPage() {
   }
 
   return (
-    <section className="stack">
+    <section className="stack" data-testid="admin-interviews-page">
       <header>
         <p className="eyebrow-light">Protected admin area</p>
-        <h2 className="title">Manage Interviews</h2>
+        <h2 className="title title-contrast">Manage Interviews</h2>
       </header>
 
-      <form className="panel form-grid" onSubmit={schedule}>
+      <form className="panel form-grid" onSubmit={schedule} data-testid="admin-interviews-form">
         <select
           value={form.candidateId}
           onChange={(event) => {
             const selected = candidates.find((candidate) => candidate.id === event.target.value);
             setForm((prev) => ({ ...prev, candidateId: event.target.value, jobId: selected?.jobId ?? "" }));
           }}
+          data-testid="interview-form-candidate"
         >
           {candidates.map((candidate) => (
             <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
           ))}
         </select>
-        <select value={form.type} onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}>
+        <select value={form.type} onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))} data-testid="interview-form-type">
           <option>Phone</option><option>Technical</option><option>Panel</option><option>Final</option>
         </select>
-        <input type="datetime-local" value={form.scheduledAt} onChange={(event) => setForm((prev) => ({ ...prev, scheduledAt: event.target.value }))} required />
-        <input value={form.interviewer} placeholder="Interviewer" onChange={(event) => setForm((prev) => ({ ...prev, interviewer: event.target.value }))} required />
-        <select value={form.status} onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}>
+        <input type="datetime-local" value={form.scheduledAt} onChange={(event) => setForm((prev) => ({ ...prev, scheduledAt: event.target.value }))} required data-testid="interview-form-scheduled-at" />
+        <input value={form.interviewer} placeholder="Interviewer" onChange={(event) => setForm((prev) => ({ ...prev, interviewer: event.target.value }))} required data-testid="interview-form-interviewer" />
+        <select value={form.status} onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))} data-testid="interview-form-status">
           <option>Scheduled</option><option>Completed</option><option>Canceled</option>
         </select>
-        <button type="submit">Schedule Interview</button>
+        <button type="submit" data-testid="interview-form-submit">Schedule Interview</button>
       </form>
 
-      <article className="panel">
-        <table>
+      <article className="panel" data-testid="admin-interviews-table-panel">
+        <table data-testid="admin-interviews-table">
           <thead><tr><th>When</th><th>Type</th><th>Interviewer</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {interviews.map((interview) => (
@@ -119,11 +120,11 @@ export default function AdminInterviewsPage() {
                 <td>{interview.type}</td>
                 <td>{interview.interviewer}</td>
                 <td>
-                  <select value={interview.status} onChange={(event) => updateStatus(interview.id, event.target.value)}>
+                  <select value={interview.status} onChange={(event) => updateStatus(interview.id, event.target.value)} data-testid={`interview-status-select-${interview.id}`}>
                     <option>Scheduled</option><option>Completed</option><option>Canceled</option>
                   </select>
                 </td>
-                <td><button className="danger-btn" type="button" onClick={() => removeInterview(interview.id)}>Delete</button></td>
+                <td><button className="danger-btn" type="button" onClick={() => removeInterview(interview.id)} data-testid={`interview-delete-${interview.id}`}>Delete</button></td>
               </tr>
             ))}
           </tbody>
