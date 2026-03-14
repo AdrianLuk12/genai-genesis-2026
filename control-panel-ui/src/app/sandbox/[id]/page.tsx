@@ -46,9 +46,17 @@ interface Scenario {
   walkthrough_steps: CapturedStep[] | null;
 }
 
+interface AgentAction {
+  type: string;
+  selector?: string;
+  value?: string;
+  url?: string;
+  description: string;
+}
+
 interface LogEntry {
   timestamp: number;
-  type: "capture" | "replay" | "info" | "error";
+  type: "capture" | "replay" | "info" | "error" | "agent";
   message: string;
 }
 
@@ -142,6 +150,16 @@ export default function SandboxViewPage() {
   const [replayStep, setReplayStep] = useState(0);
   const [replayError, setReplayError] = useState<string | null>(null);
   const replayAbortRef = useRef(false);
+
+  // Agent state
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentIntent, setAgentIntent] = useState("");
+  const [agentShowInput, setAgentShowInput] = useState(false);
+  const [agentPhase, setAgentPhase] = useState("");
+  const [agentProgress, setAgentProgress] = useState(0);
+  const [agentStepCount, setAgentStepCount] = useState(0);
+  const agentAbortRef = useRef(false);
+  const agentActionsRef = useRef<AgentAction[]>([]);
 
   // Click indicator overlay
   const [clickIndicator, setClickIndicator] = useState<ClickIndicator | null>(null);
@@ -509,6 +527,181 @@ export default function SandboxViewPage() {
     replayDecisionResolverRef.current = null;
   }
 
+  // AI Agent logic
+  async function runAgentLoop() {
+    if (!iframeRef.current || !sandbox || !agentIntent.trim()) return;
+
+    setAgentRunning(true);
+    setAgentPhase("Starting...");
+    setAgentProgress(0);
+    setAgentStepCount(0);
+    agentAbortRef.current = false;
+    agentActionsRef.current = [];
+    addLog("agent", `Agent started: "${agentIntent}"`);
+
+    const targetOrigin = new URL(sandbox.sandbox_url).origin;
+    const MAX_STEPS = 30;
+
+    // Stop capture during agent run
+    iframeRef.current.contentWindow?.postMessage({ type: "stop-capture" }, targetOrigin);
+
+    let errorContext: string | null = null;
+    let consecutiveFailures = 0;
+    let lastUrl = "/";
+
+    for (let step = 0; step < MAX_STEPS; step++) {
+      if (agentAbortRef.current) break;
+
+      flushSync(() => setAgentStepCount(step + 1));
+
+      // Wait for DOM stability
+      iframeRef.current!.contentWindow?.postMessage({ type: "wait-for-stable" }, targetOrigin);
+      await waitForMessage("dom-stable", 6000);
+      if (agentAbortRef.current) break;
+
+      // Capture DOM
+      iframeRef.current!.contentWindow?.postMessage({ type: "capture-dom" }, targetOrigin);
+      const domResult = await waitForMessage("dom-captured", 5000);
+      if (!domResult || agentAbortRef.current) {
+        addLog("error", "Failed to capture DOM");
+        break;
+      }
+      lastUrl = domResult.url as string || lastUrl;
+
+      // Call AI endpoint
+      addLog("agent", `Step ${step + 1}: Thinking...`);
+      let response;
+      try {
+        response = await api("/api/agent/next-action", {
+          method: "POST",
+          body: JSON.stringify({
+            intent: agentIntent,
+            current_dom: domResult.html as string,
+            current_url: domResult.url as string,
+            current_title: domResult.title as string,
+            action_history: agentActionsRef.current,
+            error_context: errorContext,
+          }),
+        });
+      } catch (e) {
+        addLog("error", `AI request failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+        break;
+      }
+
+      if (agentAbortRef.current) break;
+
+      const action = response.action as AgentAction;
+      flushSync(() => {
+        setAgentPhase(response.phase as string);
+        setAgentProgress(response.progress as number);
+      });
+      addLog("agent", `Step ${step + 1}: [${action.type}] ${action.description}`);
+
+      // Done?
+      if (action.type === "done") {
+        addLog("agent", "Goal accomplished!");
+        break;
+      }
+
+      // Execute action
+      errorContext = null;
+
+      if (action.type === "click" && action.selector) {
+        iframeRef.current!.contentWindow?.postMessage(
+          { type: "replay-click", selector: action.selector, fallbackSelectors: [], index: step },
+          targetOrigin
+        );
+        const result = await waitForMessage("replay-click-done", 5000);
+        if (!result?.success) {
+          errorContext = `Click failed: element not found for selector "${action.selector}"`;
+          addLog("error", errorContext);
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3) {
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
+          continue;
+        }
+        consecutiveFailures = 0;
+      } else if (action.type === "type" && action.selector && action.value) {
+        iframeRef.current!.contentWindow?.postMessage(
+          { type: "replay-input", selector: action.selector, fallbackSelectors: [], value: action.value, index: step },
+          targetOrigin
+        );
+        const result = await waitForMessage("replay-input-done", 5000);
+        if (!result?.success) {
+          errorContext = `Type failed: element not found for selector "${action.selector}"`;
+          addLog("error", errorContext);
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3) {
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
+          continue;
+        }
+        consecutiveFailures = 0;
+      } else if (action.type === "navigate" && action.url) {
+        iframeRef.current!.contentWindow?.postMessage(
+          { type: "navigate", url: action.url },
+          targetOrigin
+        );
+        await waitForMessage("navigate-done", 5000);
+        await sleep(1000);
+        consecutiveFailures = 0;
+      } else if (action.type === "wait") {
+        await sleep(1500);
+        consecutiveFailures = 0;
+      } else if (action.type === "extract") {
+        addLog("agent", `Extracted data from ${action.selector}`);
+        consecutiveFailures = 0;
+      }
+
+      // Push successful action to history
+      agentActionsRef.current = [...agentActionsRef.current, action];
+      await sleep(500);
+    }
+
+    // Convert agent actions to captured steps for saving
+    const agentSteps: CapturedStep[] = agentActionsRef.current
+      .filter((a) => a.type === "click" || a.type === "type" || a.type === "navigate")
+      .map((action, index) => ({
+        index,
+        timestamp: Date.now(),
+        url: action.url || lastUrl,
+        selector: action.selector || "",
+        fallbackSelectors: [],
+        elementTag: "",
+        elementText: action.description,
+        pageTitle: "",
+        action: action.type === "type" ? "input" as const : "click" as const,
+        inputValue: action.value,
+        inputType: "text",
+      }));
+
+    // Add agent-generated steps to captured steps
+    if (agentSteps.length > 0) {
+      capturedStepsRef.current = [...capturedStepsRef.current, ...agentSteps];
+      setCapturedSteps(capturedStepsRef.current);
+    }
+
+    // Restart capture
+    iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
+
+    addLog("agent", agentAbortRef.current ? "Agent stopped" : `Agent finished (${agentActionsRef.current.length} actions)`);
+    setAgentRunning(false);
+    setAgentPhase("");
+    setAgentProgress(0);
+    setAgentStepCount(0);
+  }
+
+  function stopAgent() {
+    agentAbortRef.current = true;
+    setAgentRunning(false);
+    setAgentPhase("");
+    setAgentProgress(0);
+    setAgentStepCount(0);
+  }
+
   if (loading) {
     return (
       <div className="animate-fade-in-up space-y-4">
@@ -551,7 +744,22 @@ export default function SandboxViewPage() {
           </p>
         </div>
         <div className="flex gap-2 items-center">
-          {walkthroughSteps && !replaying && (
+          {!agentRunning && !replaying && (
+            <Button
+              variant="outline"
+              onClick={() => setAgentShowInput(!agentShowInput)}
+              disabled={actionLoading}
+              className="border-purple-500/30 text-purple-600 hover:bg-purple-500/5"
+            >
+              AI Agent
+            </Button>
+          )}
+          {agentRunning && (
+            <Button variant="outline" onClick={stopAgent} className="border-purple-500/30 text-purple-600">
+              Stop Agent
+            </Button>
+          )}
+          {walkthroughSteps && !replaying && !agentRunning && (
             <Button variant="outline" onClick={startReplay} disabled={actionLoading}>
               Replay
             </Button>
@@ -561,18 +769,76 @@ export default function SandboxViewPage() {
               Stop Replay
             </Button>
           )}
-          <Button variant="outline" onClick={saveState} disabled={actionLoading || replaying}>
+          <Button variant="outline" onClick={saveState} disabled={actionLoading || replaying || agentRunning}>
             Save Walkthrough State
           </Button>
           <Button
             variant="destructive"
             onClick={destroySandbox}
-            disabled={actionLoading || replaying}
+            disabled={actionLoading || replaying || agentRunning}
           >
             Destroy Sandbox
           </Button>
         </div>
       </div>
+
+      {/* Agent input */}
+      {agentShowInput && !agentRunning && (
+        <Card className="animate-slide-in-top border-purple-500/20 bg-purple-500/5">
+          <CardContent className="py-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (agentIntent.trim()) {
+                  setAgentShowInput(false);
+                  runAgentLoop();
+                }
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={agentIntent}
+                onChange={(e) => setAgentIntent(e.target.value)}
+                placeholder="Describe what the agent should do... (e.g., 'add the cheapest product to cart')"
+                className="flex-1 px-3 py-1.5 text-sm font-mono bg-transparent border border-purple-500/20 rounded focus:outline-none focus:border-purple-500/50 placeholder:text-muted-foreground/50"
+                autoFocus
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                disabled={!agentIntent.trim()}
+                className="border-purple-500/30 text-purple-600 hover:bg-purple-500/10"
+              >
+                Run
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Agent progress */}
+      {agentRunning && (
+        <Card className="animate-slide-in-top border-purple-500/20 bg-purple-500/5">
+          <CardContent className="py-3 flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-mono text-purple-600">
+                Step {agentStepCount} {agentPhase && `\u2014 ${agentPhase}`}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                {agentIntent}
+              </p>
+            </div>
+            <div className="w-32 h-1 bg-border overflow-hidden ml-4">
+              <div
+                className="h-full bg-purple-500/60 transition-all duration-300"
+                style={{ width: `${agentProgress * 100}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Replay progress */}
       {replaying && (
@@ -740,6 +1006,8 @@ export default function SandboxViewPage() {
                     ? "text-green-400"
                     : entry.type === "replay"
                     ? "text-blue-400"
+                    : entry.type === "agent"
+                    ? "text-purple-400"
                     : "text-[#888]"
                 }`}
               >

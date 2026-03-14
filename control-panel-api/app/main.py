@@ -7,6 +7,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 
+import anthropic
 import docker
 from docker.errors import NotFound as DockerNotFound
 from dotenv import load_dotenv
@@ -485,6 +486,164 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
     db.close()
 
     return new_scenario
+
+
+# --- AI Agent Navigation ---
+
+claude_client = anthropic.Anthropic()
+
+AGENT_SYSTEM_PROMPT = """You are a browser navigation agent controlling an e-commerce web application through an iframe. You will be given:
+1. The user's intent (what they want to accomplish)
+2. The current page's cleaned HTML DOM
+3. The current URL and page title
+4. A history of all actions you have taken so far
+
+Your job is to determine the SINGLE next action to take to make progress toward the user's goal.
+
+RULES:
+- You can ONLY interact with visible, enabled elements
+- Prefer clicking elements with data-testid attributes when available
+- For selectors, use data-testid when present (e.g., [data-testid="add-to-cart-btn-4"]), then aria-label, then id, then a specific CSS path
+- ALWAYS provide a specific CSS selector that uniquely identifies the element
+- When typing into inputs, the field must be focused first (clicking it counts)
+- After clicking something that triggers a page change or data load, your next action should be "wait" to let the page update
+- When the goal is fully accomplished, return action type "done"
+- Never repeat the same failed action more than once — try a different selector or approach
+- For navigation, use the navigate action with a path like "/cart" rather than clicking links when the URL is known
+
+Respond with ONLY a JSON object in this exact format (no markdown, no extra text):
+{
+  "action": {
+    "type": "click | type | navigate | wait | extract | done",
+    "selector": "CSS selector (for click/type/extract, omit for navigate/wait/done)",
+    "value": "text to type (for type action only)",
+    "url": "/path (for navigate action only)",
+    "description": "human-readable description of what this action does"
+  },
+  "reasoning": "Why this action moves toward the goal",
+  "phase": "Current phase description",
+  "progress": 0.0
+}"""
+
+
+class AgentAction(BaseModel):
+    type: str
+    selector: str | None = None
+    value: str | None = None
+    url: str | None = None
+    description: str = ""
+
+
+class AgentStepRequest(BaseModel):
+    intent: str
+    current_dom: str
+    current_url: str
+    current_title: str
+    action_history: list[AgentAction] = []
+    error_context: str | None = None
+
+
+class AgentStepResponse(BaseModel):
+    action: AgentAction
+    reasoning: str
+    phase: str
+    progress: float
+
+
+@app.post("/api/agent/next-action")
+async def agent_next_action(body: AgentStepRequest):
+    # Build action history summary
+    history_lines = []
+    for i, a in enumerate(body.action_history):
+        line = f"{i + 1}. [{a.type}] {a.description}"
+        if a.selector:
+            line += f" (selector: {a.selector})"
+        if a.value:
+            line += f" (value: {a.value})"
+        history_lines.append(line)
+
+    history_text = "\n".join(history_lines) if history_lines else "(none yet)"
+
+    # Build user message
+    user_message = f"""## Intent
+{body.intent}
+
+## Current Page
+URL: {body.current_url}
+Title: {body.current_title}
+
+## Action History ({len(body.action_history)} actions taken)
+{history_text}
+"""
+
+    if body.error_context:
+        user_message += f"""
+## Error
+The previous action failed: {body.error_context}
+Please try a different approach.
+"""
+
+    user_message += f"""
+## Current DOM
+```html
+{body.current_dom[:50000]}
+```
+
+Determine the next action."""
+
+    import re
+    import logging
+    logger = logging.getLogger("agent")
+
+    try:
+        logger.info(f"Agent request: intent='{body.intent}', url='{body.current_url}', dom_len={len(body.current_dom)}, history_len={len(body.action_history)}")
+
+        response = claude_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1024,
+            system=AGENT_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        # Parse Claude's JSON response
+        text = response.content[0].text.strip()
+        logger.info(f"Claude raw response: {text[:500]}")
+
+        # Remove markdown code fences if present
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        # Try to extract JSON object if there's surrounding text
+        if not text.startswith("{"):
+            match = re.search(r'\{[\s\S]*\}', text)
+            if match:
+                text = match.group(0)
+
+        parsed = json.loads(text)
+
+        return AgentStepResponse(
+            action=AgentAction(**parsed["action"]),
+            reasoning=parsed.get("reasoning", ""),
+            phase=parsed.get("phase", ""),
+            progress=float(parsed.get("progress", 0.0)),
+        )
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse Claude response as JSON: {e}")
+        logger.error(f"Response text was: {text[:1000]}")
+        # Return the raw text so the UI can see what went wrong
+        return AgentStepResponse(
+            action=AgentAction(type="wait", description=f"Parse error - Claude said: {text[:200]}"),
+            reasoning=f"Failed to parse: {str(e)}",
+            phase="error recovery",
+            progress=0.0,
+        )
+    except Exception as e:
+        logger.error(f"Agent error: {e}")
+        raise HTTPException(status_code=500, detail=f"AI agent error: {str(e)}")
 
 
 # --- Static files (bridge.js for walkthrough capture) ---

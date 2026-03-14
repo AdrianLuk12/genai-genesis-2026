@@ -4,3 +4,4 @@ docker
 python-multipart
 python-dotenv
 httpx
+anthropic
