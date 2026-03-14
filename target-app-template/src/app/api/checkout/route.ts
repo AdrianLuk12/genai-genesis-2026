@@ -20,6 +20,26 @@ export async function POST() {
     0
   );
 
+  // Verify stock before checkout
+  const stockCheck = db.prepare(
+    "SELECT id, name, stock_quantity FROM products WHERE id = ?"
+  );
+  for (const item of items) {
+    const product = stockCheck.get(item.product_id) as {
+      id: number;
+      name: string;
+      stock_quantity: number;
+    };
+    if (product.stock_quantity < item.quantity) {
+      return NextResponse.json(
+        {
+          error: `Not enough stock for "${product.name}" (${product.stock_quantity} available, ${item.quantity} requested)`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const checkout = db.transaction(() => {
     const result = db
       .prepare(
@@ -32,9 +52,13 @@ export async function POST() {
     const insertItem = db.prepare(
       "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)"
     );
+    const decrementStock = db.prepare(
+      "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?"
+    );
 
     for (const item of items) {
       insertItem.run(orderId, item.product_id, item.quantity, item.price);
+      decrementStock.run(item.quantity, item.product_id);
     }
 
     db.prepare("DELETE FROM cart_items WHERE session_id = 'default'").run();
