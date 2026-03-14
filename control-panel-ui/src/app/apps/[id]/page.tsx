@@ -53,6 +53,7 @@ interface WorkflowEntry {
   name: string;
   steps_json: unknown[];
   scenario_id: string;
+  scenario_name?: string;
   created_at: string;
 }
 
@@ -95,6 +96,7 @@ export default function AppDetailPage() {
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [versionTag, setVersionTag] = useState("");
+  const [dataPath, setDataPath] = useState("");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -252,6 +254,9 @@ export default function AppDetailPage() {
       const formData = new FormData();
       formData.append("file", uploadFile);
       formData.append("version_tag", versionTag);
+      if (dataPath.trim()) {
+        formData.append("data_path", dataPath.trim());
+      }
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${API_URL}/api/apps/${appId}/versions`);
@@ -277,6 +282,7 @@ export default function AppDetailPage() {
       });
       setUploadFile(null);
       setVersionTag("");
+      setDataPath("");
       setShowUploadForm(false);
       setUploadProgress(0);
       loadVersions();
@@ -376,10 +382,14 @@ export default function AppDetailPage() {
   }
 
   async function deleteScenario(scenarioId: string, versionId: string) {
+    const affectedWorkflows = (versionWorkflows[versionId] || []).filter(
+      (w) => w.scenario_id === scenarioId
+    );
     const ok = await confirm({
       title: "Delete Scenario",
-      description:
-        "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
+      description: affectedWorkflows.length > 0
+        ? `This scenario and ${affectedWorkflows.length} associated workflow${affectedWorkflows.length === 1 ? "" : "s"} will be permanently removed. Any sandboxes launched from it will not be affected.`
+        : "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
       confirmText: "Delete",
       variant: "destructive",
     });
@@ -388,6 +398,10 @@ export default function AppDetailPage() {
     setVersionScenarios((prev) => ({
       ...prev,
       [versionId]: (prev[versionId] || []).filter((s) => s.id !== scenarioId),
+    }));
+    setVersionWorkflows((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).filter((w) => w.scenario_id !== scenarioId),
     }));
   }
 
@@ -634,6 +648,21 @@ export default function AppDetailPage() {
                   placeholder="e.g. v1.0.0"
                   disabled={uploading}
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  Data Path
+                </label>
+                <Input
+                  value={dataPath}
+                  onChange={(e) => setDataPath(e.target.value)}
+                  placeholder="/app/data"
+                  disabled={uploading}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Container directory to save/restore state from. Defaults to /app/data.
+                </p>
               </div>
 
               {uploading && (
@@ -1101,7 +1130,7 @@ function VersionRow({
                               )}
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground">
-                              {scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}
+                              {wf.scenario_name || scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                               {new Date(wf.created_at).toLocaleDateString()}
