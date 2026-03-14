@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Syne } from "next/font/google";
 import Link from "next/link";
+import { ConfirmProvider } from "@/components/ui/confirm-modal";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+});
+
+const syne = Syne({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
@@ -20,17 +27,33 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} font-sans antialiased`}>
-        <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6">
-          <span className="font-bold text-lg mr-4">Sandbox Platform</span>
-          <Link href="/" className="text-gray-700 hover:text-black">
-            Dashboard
-          </Link>
-          <Link href="/scenarios" className="text-gray-700 hover:text-black">
-            Scenarios
-          </Link>
-        </nav>
-        <main className="p-6">{children}</main>
+      <body
+        className={`${geistSans.variable} ${syne.variable} font-sans antialiased`}
+      >
+        <ConfirmProvider>
+          <nav className="sticky top-0 z-50 bg-[#F9F8F6]/70 backdrop-blur-xl border-b border-border/50 px-8 py-4 flex items-center gap-8">
+            <Link href="/" className="font-display font-bold text-xl tracking-tight mr-2">
+              SANDBOX
+            </Link>
+            <div className="flex items-center gap-6">
+              <Link
+                href="/"
+                className="group relative text-sm uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors duration-300"
+              >
+                Dashboard
+                <span className="absolute left-0 -bottom-1 h-px w-0 bg-foreground transition-all duration-300 ease-out group-hover:w-full" />
+              </Link>
+              <Link
+                href="/scenarios"
+                className="group relative text-sm uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors duration-300"
+              >
+                Scenarios
+                <span className="absolute left-0 -bottom-1 h-px w-0 bg-foreground transition-all duration-300 ease-out group-hover:w-full" />
+              </Link>
+            </div>
+          </nav>
+          <main className="max-w-6xl mx-auto px-8 py-8">{children}</main>
+        </ConfirmProvider>
       </body>
     </html>
   );

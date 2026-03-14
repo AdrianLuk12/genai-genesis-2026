@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Dashboard page
 The control panel UI SHALL display a dashboard at the root route (`/`) showing a list of active sandboxes and quick-launch buttons for available scenarios. The dashboard SHALL use the warm earthy design system with boxy cards, staggered entrance animations, and skeleton loading states.
@@ -34,13 +34,6 @@ The control panel UI SHALL display a scenario browser page at `/scenarios` showi
 - **WHEN** the scenarios page is loading data from the API
 - **THEN** skeleton card placeholders with shimmer animation are displayed instead of plain "Loading..." text
 
-### Requirement: Scenario creation
-The control panel UI SHALL provide a form to create new scenario templates with name, description, and JSON configuration parameters.
-
-#### Scenario: Create scenario with form
-- **WHEN** a user fills in the scenario creation form and submits
-- **THEN** the scenario is created via the API and appears in the scenario list
-
 ### Requirement: Active sandbox view page
 The control panel UI SHALL display a sandbox view page at `/sandbox/[id]` showing a preview of the running sandbox app and control buttons. The preview SHALL poll for sandbox readiness before displaying content, showing a loading skeleton during the wait.
 
@@ -55,13 +48,6 @@ The control panel UI SHALL display a sandbox view page at `/sandbox/[id]` showin
 #### Scenario: Destroy sandbox from sandbox view
 - **WHEN** a user clicks "Destroy Sandbox"
 - **THEN** a confirmation dialog appears styled with the warm design system, and upon confirmation, the sandbox is destroyed and the user is redirected to the dashboard
-
-### Requirement: API-driven UI
-Every action in the control panel UI SHALL be performed through REST API calls to the control panel API at `http://localhost:8000`. The UI SHALL NOT directly interact with Docker or Supabase.
-
-#### Scenario: All UI actions use API
-- **WHEN** the UI performs any operation (list scenarios, launch sandbox, save state, destroy sandbox)
-- **THEN** the operation is executed via an HTTP request to the control panel API
 
 ### Requirement: Responsive layout
 The control panel UI SHALL use a responsive layout with Tailwind CSS that works on desktop screens (minimum 1024px width). All components SHALL use the boxy aesthetic with zero border-radius and warm color palette.
