@@ -19,6 +19,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
+  const [updatingQty, setUpdatingQty] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/cart")
@@ -27,9 +28,31 @@ export default function CartPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function updateQuantity(itemId: number, newQty: number) {
+    setUpdatingQty(itemId);
+    if (newQty < 1) {
+      await fetch(`/api/cart/${itemId}`, { method: "DELETE" });
+      setItems(items.filter((item) => item.id !== itemId));
+    } else {
+      await fetch(`/api/cart/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: newQty }),
+      });
+      setItems(
+        items.map((item) =>
+          item.id === itemId ? { ...item, quantity: newQty } : item
+        )
+      );
+    }
+    setUpdatingQty(null);
+    window.dispatchEvent(new Event("cart-updated"));
+  }
+
   async function removeItem(id: number) {
     await fetch(`/api/cart/${id}`, { method: "DELETE" });
     setItems(items.filter((item) => item.id !== id));
+    window.dispatchEvent(new Event("cart-updated"));
   }
 
   async function checkout() {
@@ -39,6 +62,7 @@ export default function CartPage() {
     if (data.success) {
       setMessage(`Order #${data.order_id} placed successfully!`);
       setItems([]);
+      window.dispatchEvent(new Event("cart-updated"));
     } else {
       setMessage(data.error || "Checkout failed");
     }
@@ -60,7 +84,6 @@ export default function CartPage() {
         </p>
       </div>
 
-      {/* Success message */}
       {message && (
         <div className="bg-[#f1f8f5] border border-[#008060] rounded-xl p-4 mb-6 flex items-start gap-3">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="#008060" className="mt-0.5 shrink-0">
@@ -107,7 +130,6 @@ export default function CartPage() {
         </div>
       ) : items.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Cart Items */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl border border-[#e1e3e5] shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden">
               {items.map((item, idx) => (
@@ -117,16 +139,9 @@ export default function CartPage() {
                     idx < items.length - 1 ? "border-b border-[#edeeef]" : ""
                   } hover:bg-[#fafbfb] transition-colors`}
                 >
-                  {/* Product thumbnail */}
                   <div className="w-16 h-16 bg-[#f6f6f7] rounded-lg border border-[#e1e3e5] shrink-0 overflow-hidden relative">
                     {item.image_url ? (
-                      <Image
-                        src={item.image_url}
-                        alt={item.name}
-                        fill
-                        className="object-cover"
-                        sizes="64px"
-                      />
+                      <Image src={item.image_url} alt={item.name} fill className="object-cover" sizes="64px" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <svg width="24" height="24" viewBox="0 0 20 20" fill="#8c9196" className="opacity-40">
@@ -136,31 +151,54 @@ export default function CartPage() {
                     )}
                   </div>
 
-                  {/* Product info */}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-[#202223] text-sm truncate">{item.name}</h3>
                     <p className="text-sm text-[#6d7175] mt-0.5">${item.price.toFixed(2)} each</p>
                   </div>
 
-                  {/* Quantity */}
-                  <div className="flex items-center gap-2">
+                  {/* Quantity controls */}
+                  <div className="flex items-center border border-[#e1e3e5] rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      disabled={updatingQty === item.id}
+                      className="w-8 h-8 flex items-center justify-center text-[#6d7175] hover:bg-[#f6f6f7] hover:text-[#202223] transition-colors disabled:opacity-50"
+                      aria-label="Decrease quantity"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </button>
                     <input
                       data-testid={`quantity-input-${item.product_id}`}
                       type="number"
                       value={item.quantity}
-                      readOnly
-                      className="w-14 text-center border border-[#e1e3e5] rounded-lg py-1.5 text-sm text-[#202223] bg-[#fafbfb]"
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (!isNaN(val) && val >= 1) {
+                          updateQuantity(item.id, val);
+                        }
+                      }}
+                      className="w-10 text-center text-sm text-[#202223] border-x border-[#e1e3e5] py-1 bg-white focus:outline-none"
+                      min="1"
                     />
+                    <button
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      disabled={updatingQty === item.id || item.quantity >= item.stock_quantity}
+                      className="w-8 h-8 flex items-center justify-center text-[#6d7175] hover:bg-[#f6f6f7] hover:text-[#202223] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="Increase quantity"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                      </svg>
+                    </button>
                   </div>
 
-                  {/* Line total */}
                   <div className="text-right w-20 shrink-0">
                     <span className="font-semibold text-[#202223] text-sm">
                       ${(item.price * item.quantity).toFixed(2)}
                     </span>
                   </div>
 
-                  {/* Remove */}
                   <button
                     data-testid={`remove-item-btn-${item.product_id}`}
                     aria-label={`Remove ${item.name} from cart`}
@@ -186,7 +224,6 @@ export default function CartPage() {
             </Link>
           </div>
 
-          {/* Order Summary */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl border border-[#e1e3e5] shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-5 sticky top-24">
               <h2 className="font-semibold text-[#202223] mb-4">Order Summary</h2>

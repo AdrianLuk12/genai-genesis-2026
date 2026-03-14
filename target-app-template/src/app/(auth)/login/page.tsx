@@ -103,7 +103,11 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-4 text-center">
-            <button className="text-[#008060] hover:text-[#006e52] text-sm font-medium transition-colors">
+            <button
+              type="button"
+              onClick={() => setError("For this demo, use the credentials shown below.")}
+              className="text-[#008060] hover:text-[#006e52] text-sm font-medium transition-colors"
+            >
               Forgot password?
             </button>
           </div>

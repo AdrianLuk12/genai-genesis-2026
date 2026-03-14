@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CartBadge from "./CartBadge";
 
 export default function StorefrontLayout({
   children,
@@ -9,7 +10,8 @@ export default function StorefrontLayout({
     <>
       {/* Top announcement bar */}
       <div className="bg-[#1a1c1d] text-white text-center text-sm py-2 px-4">
-        Free shipping on orders over $50 &mdash; Shop now
+        Free shipping on orders over $50 &mdash;{" "}
+        <Link href="/#products" className="underline hover:no-underline">Shop now</Link>
       </div>
 
       {/* Main navigation */}
@@ -45,7 +47,7 @@ export default function StorefrontLayout({
                 <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
               </svg>
               <span className="hidden sm:inline">Cart</span>
-              <CartCount />
+              <CartBadge />
             </Link>
             <Link
               href="/login"
@@ -75,26 +77,24 @@ export default function StorefrontLayout({
               <ul className="space-y-2 text-sm text-[#a6acb2]">
                 <li><Link href="/" className="hover:text-white transition-colors">All Products</Link></li>
                 <li><Link href="/#categories" className="hover:text-white transition-colors">Categories</Link></li>
-                <li><span className="cursor-default">New Arrivals</span></li>
-                <li><span className="cursor-default">Sale</span></li>
+                <li><Link href="/shipping" className="hover:text-white transition-colors">Shipping Info</Link></li>
+                <li><Link href="/returns" className="hover:text-white transition-colors">Returns</Link></li>
               </ul>
             </div>
             <div>
               <h4 className="font-semibold mb-3 text-sm uppercase tracking-wide">Support</h4>
               <ul className="space-y-2 text-sm text-[#a6acb2]">
-                <li><span className="cursor-default">Contact Us</span></li>
-                <li><span className="cursor-default">Shipping Info</span></li>
-                <li><span className="cursor-default">Returns</span></li>
-                <li><span className="cursor-default">FAQ</span></li>
+                <li><Link href="/contact" className="hover:text-white transition-colors">Contact Us</Link></li>
+                <li><Link href="/faq" className="hover:text-white transition-colors">FAQ</Link></li>
+                <li><Link href="/about" className="hover:text-white transition-colors">About Us</Link></li>
+                <li><Link href="/careers" className="hover:text-white transition-colors">Careers</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold mb-3 text-sm uppercase tracking-wide">Company</h4>
+              <h4 className="font-semibold mb-3 text-sm uppercase tracking-wide">Legal</h4>
               <ul className="space-y-2 text-sm text-[#a6acb2]">
-                <li><span className="cursor-default">About Us</span></li>
-                <li><span className="cursor-default">Careers</span></li>
-                <li><span className="cursor-default">Privacy Policy</span></li>
-                <li><span className="cursor-default">Terms of Service</span></li>
+                <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
           </div>
@@ -105,23 +105,4 @@ export default function StorefrontLayout({
       </footer>
     </>
   );
-}
-
-async function CartCount() {
-  try {
-    const db = (await import("@/lib/db")).default;
-    const result = db
-      .prepare("SELECT COALESCE(SUM(quantity), 0) as count FROM cart_items")
-      .get() as { count: number };
-    if (result.count > 0) {
-      return (
-        <span className="absolute -top-2 -right-3 bg-[#008060] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-          {result.count}
-        </span>
-      );
-    }
-  } catch {
-    // DB not ready yet
-  }
-  return null;
 }

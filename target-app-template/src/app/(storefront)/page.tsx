@@ -62,15 +62,24 @@ export default function ProductsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [addingToCart, setAddingToCart] = useState<number | null>(null);
   const [addedToCart, setAddedToCart] = useState<number | null>(null);
+  const [cartError, setCartError] = useState<string | null>(null);
+
+  const [usingFallback, setUsingFallback] = useState(false);
 
   useEffect(() => {
     fetch("/api/products")
       .then((r) => r.json())
       .then((data) => {
-        setProducts(data.length > 0 ? data : TEST_PRODUCTS);
+        if (data.length > 0) {
+          setProducts(data);
+        } else {
+          setProducts(TEST_PRODUCTS);
+          setUsingFallback(true);
+        }
       })
       .catch(() => {
         setProducts(TEST_PRODUCTS);
+        setUsingFallback(true);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -82,20 +91,49 @@ export default function ProductsPage() {
       : products.filter((p) => p.category === selectedCategory);
 
   async function addToCart(productId: number) {
+    if (usingFallback) {
+      setCartError("Products are in preview mode. Database is not available.");
+      setTimeout(() => setCartError(null), 3000);
+      return;
+    }
+
     setAddingToCart(productId);
-    await fetch("/api/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product_id: productId }),
-    });
-    setAddingToCart(null);
-    setAddedToCart(productId);
-    setTimeout(() => setAddedToCart(null), 2000);
-    window.location.reload();
+    setCartError(null);
+    try {
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: productId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCartError(data.error || "Failed to add to cart");
+        setTimeout(() => setCartError(null), 3000);
+      } else {
+        setAddedToCart(productId);
+        setTimeout(() => setAddedToCart(null), 2000);
+        window.dispatchEvent(new Event("cart-updated"));
+      }
+    } catch {
+      setCartError("Failed to add to cart. Please try again.");
+      setTimeout(() => setCartError(null), 3000);
+    } finally {
+      setAddingToCart(null);
+    }
   }
 
   return (
     <div>
+      {/* Error toast */}
+      {cartError && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#fef3f1] border border-[#d72c0d] text-[#d72c0d] px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 text-sm font-medium animate-[fadeIn_0.2s_ease-out]">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" className="shrink-0">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+          {cartError}
+        </div>
+      )}
+
       {/* Hero Section */}
       <div className="bg-gradient-to-br from-[#1a1c1d] via-[#2a2c2e] to-[#1a1c1d] text-white">
         <div className="max-w-7xl mx-auto px-6 py-16 md:py-24">
