@@ -69,7 +69,9 @@ Configure credentials in `.env` (copy from `.env.example`) using:
 - `AUTH_USER_EMAIL`
 - `AUTH_USER_PASSWORD`
 
-Credentials are never displayed in the login UI.
+Login forms are prefilled with development defaults for quick demos.
+
+To use your own credentials, update `.env` values and restart the app.
 
 ## Data model
 
@@ -114,4 +116,10 @@ Environment variables are included in `.env.example` for future Db2 migration:
 
 ```bash
 cp .env.example .env
+```
+
+## Build check
+
+```bash
+npm run build
 ```

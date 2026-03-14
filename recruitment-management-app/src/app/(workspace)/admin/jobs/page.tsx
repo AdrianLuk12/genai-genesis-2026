@@ -57,25 +57,25 @@ export default function AdminJobsPage() {
   }
 
   return (
-    <section className="stack">
+    <section className="stack" data-testid="admin-jobs-page">
       <header>
         <p className="eyebrow-light">Protected admin area</p>
-        <h2 className="title">Manage Jobs</h2>
+        <h2 className="title title-contrast">Manage Jobs</h2>
       </header>
 
-      <form className="panel form-grid" onSubmit={createJob}>
-        <input value={form.title} placeholder="Title" onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} required />
-        <input value={form.department} placeholder="Department" onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))} required />
-        <input value={form.location} placeholder="Location" onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} required />
-        <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>
+      <form className="panel form-grid" onSubmit={createJob} data-testid="admin-jobs-create-form">
+        <input value={form.title} placeholder="Title" onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} required data-testid="job-form-title" />
+        <input value={form.department} placeholder="Department" onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))} required data-testid="job-form-department" />
+        <input value={form.location} placeholder="Location" onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} required data-testid="job-form-location" />
+        <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} data-testid="job-form-status">
           <option>Open</option><option>Paused</option><option>Closed</option>
         </select>
-        <input type="number" min={1} value={form.openings} onChange={(e) => setForm((p) => ({ ...p, openings: Number(e.target.value) }))} />
-        <button type="submit">Create Job</button>
+        <input type="number" min={1} value={form.openings} onChange={(e) => setForm((p) => ({ ...p, openings: Number(e.target.value) }))} data-testid="job-form-openings" />
+        <button type="submit" data-testid="job-form-submit">Create Job</button>
       </form>
 
-      <article className="panel">
-        <table>
+      <article className="panel" data-testid="admin-jobs-table-panel">
+        <table data-testid="admin-jobs-table">
           <thead><tr><th>Title</th><th>Department</th><th>Location</th><th>Status</th><th>Openings</th><th>Actions</th></tr></thead>
           <tbody>
             {jobs.map((job) => (
@@ -84,12 +84,12 @@ export default function AdminJobsPage() {
                 <td>{job.department}</td>
                 <td>{job.location}</td>
                 <td>
-                  <select value={job.status} onChange={(e) => updateStatus(job.id, e.target.value)}>
+                  <select value={job.status} onChange={(e) => updateStatus(job.id, e.target.value)} data-testid={`job-status-select-${job.id}`}>
                     <option>Open</option><option>Paused</option><option>Closed</option>
                   </select>
                 </td>
                 <td>{job.openings}</td>
-                <td><button className="danger-btn" type="button" onClick={() => removeJob(job.id)}>Delete</button></td>
+                <td><button className="danger-btn" type="button" onClick={() => removeJob(job.id)} data-testid={`job-delete-${job.id}`}>Delete</button></td>
               </tr>
             ))}
           </tbody>
