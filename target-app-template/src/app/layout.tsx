@@ -22,6 +22,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script src="http://localhost:8000/static/bridge.js" async />
+      </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         {children}
       </body>

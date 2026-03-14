@@ -32,6 +32,16 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
     """)
+    # Add name column if it doesn't exist (safe migration)
+    try:
+        conn.execute("SELECT name FROM active_containers LIMIT 0")
+    except Exception:
+        conn.execute("ALTER TABLE active_containers ADD COLUMN name TEXT DEFAULT NULL")
+    # Add walkthrough_steps column if it doesn't exist (safe migration)
+    try:
+        conn.execute("SELECT walkthrough_steps FROM scenarios LIMIT 0")
+    except Exception:
+        conn.execute("ALTER TABLE scenarios ADD COLUMN walkthrough_steps TEXT DEFAULT NULL")
     conn.commit()
     conn.close()
 

@@ -12,6 +12,7 @@ from docker.errors import NotFound as DockerNotFound
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.db import init_db, get_db, FILES_DIR
@@ -22,7 +23,7 @@ app = FastAPI(title="Sandbox Platform API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origin_regex=r"http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,13 +73,18 @@ def rebuild_used_ports():
 
 
 def row_to_dict(row) -> dict:
-    """Convert a sqlite3.Row to a dict, parsing config_json back to a dict."""
+    """Convert a sqlite3.Row to a dict, parsing JSON fields back to Python objects."""
     d = dict(row)
     if "config_json" in d and isinstance(d["config_json"], str):
         try:
             d["config_json"] = json.loads(d["config_json"])
         except (json.JSONDecodeError, TypeError):
             d["config_json"] = {}
+    if "walkthrough_steps" in d and isinstance(d["walkthrough_steps"], str):
+        try:
+            d["walkthrough_steps"] = json.loads(d["walkthrough_steps"])
+        except (json.JSONDecodeError, TypeError):
+            d["walkthrough_steps"] = None
     return d
 
 
@@ -138,6 +144,38 @@ async def create_scenario(body: ScenarioCreate):
         (scenario_id, body.name, body.description, json.dumps(body.config_json)),
     )
     db.commit()
+    row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
+    db.close()
+    return row_to_dict(row)
+
+
+class ScenarioUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@app.patch("/api/scenarios/{scenario_id}")
+async def update_scenario(scenario_id: str, body: ScenarioUpdate):
+    db = get_db()
+    row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    updates = []
+    params = []
+    if body.name is not None:
+        updates.append("name = ?")
+        params.append(body.name)
+    if body.description is not None:
+        updates.append("description = ?")
+        params.append(body.description)
+
+    if updates:
+        params.append(scenario_id)
+        db.execute(f"UPDATE scenarios SET {', '.join(updates)} WHERE id = ?", params)
+        db.commit()
+
     row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
     db.close()
     return row_to_dict(row)
@@ -264,6 +302,34 @@ async def list_sandboxes():
     return [dict(r) for r in rows]
 
 
+class SandboxUpdate(BaseModel):
+    name: str | None = None
+
+
+@app.patch("/api/sandboxes/{container_id}")
+async def update_sandbox(container_id: str, body: SandboxUpdate):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM active_containers WHERE container_id = ?", (container_id,)
+    ).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+
+    # Treat empty string as NULL (clear the name)
+    name_val = body.name if body.name else None
+    db.execute(
+        "UPDATE active_containers SET name = ? WHERE container_id = ?",
+        (name_val, container_id),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM active_containers WHERE container_id = ?", (container_id,)
+    ).fetchone()
+    db.close()
+    return dict(row)
+
+
 @app.delete("/api/sandboxes/{container_id}")
 async def destroy_sandbox(container_id: str):
     db = get_db()
@@ -328,6 +394,7 @@ async def cleanup():
 class SaveRequest(BaseModel):
     name: str | None = None
     description: str | None = None
+    walkthrough_steps: list | None = None
 
 
 @app.post("/api/sandboxes/{container_id}/save")
@@ -385,9 +452,10 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
         description = body.description or f"Walkthrough state saved from sandbox {container_id[:12]}"
 
         new_id = str(uuid.uuid4())
+        steps_json = json.dumps(body.walkthrough_steps) if body.walkthrough_steps else None
         db.execute(
-            "INSERT INTO scenarios (id, name, description, config_json, db_file_path, parent_scenario_id) VALUES (?, ?, ?, '{}', ?, ?)",
-            (new_id, name, description, rel_path, record["scenario_id"]),
+            "INSERT INTO scenarios (id, name, description, config_json, db_file_path, parent_scenario_id, walkthrough_steps) VALUES (?, ?, ?, '{}', ?, ?, ?)",
+            (new_id, name, description, rel_path, record["scenario_id"], steps_json),
         )
         db.commit()
 
@@ -417,3 +485,9 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
     db.close()
 
     return new_scenario
+
+
+# --- Static files (bridge.js for walkthrough capture) ---
+
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
