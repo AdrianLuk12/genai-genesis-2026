@@ -15,6 +15,8 @@ import {
   ExternalLink,
   Pencil,
   Plus,
+  RotateCcw,
+  Rocket,
 } from "lucide-react";
 
 interface Sandbox {
@@ -36,11 +38,66 @@ interface Scenario {
   created_at: string;
 }
 
+const demoPresets: Array<{
+  key: string;
+  name: string;
+  description: string;
+  config_json: Record<string, unknown>;
+}> = [
+  {
+    key: "sales-demo",
+    name: "Sales Demo – Feature Rich",
+    description: "Synthetic high-volume catalog with checkout and discount features enabled.",
+    config_json: {
+      product_count: 40,
+      buyer_count: 60,
+      inventory_status: "mixed",
+      order_count: 80,
+      features: ["checkout", "discounts", "saved-cart"],
+      demo_mode: true,
+      ttl_minutes: 60,
+      role_access: ["admin", "manager", "viewer"],
+    },
+  },
+  {
+    key: "qa-regression",
+    name: "QA Regression – Low Inventory",
+    description: "Edge-case stock pressure and error paths for reproducible QA validation.",
+    config_json: {
+      product_count: 18,
+      buyer_count: 25,
+      inventory_status: "low",
+      order_count: 20,
+      features: ["checkout", "inventory-alerts"],
+      demo_mode: true,
+      ttl_minutes: 45,
+      role_access: ["qa-admin", "qa-viewer"],
+    },
+  },
+  {
+    key: "walkthrough-capture",
+    name: "Walkthrough Capture – Template Ready",
+    description: "Baseline scenario tuned for saving walkthroughs into reusable templates.",
+    config_json: {
+      product_count: 24,
+      buyer_count: 30,
+      inventory_status: "mixed",
+      order_count: 35,
+      features: ["checkout", "capture-replay"],
+      demo_mode: true,
+      ttl_minutes: 90,
+      role_access: ["admin", "presenter"],
+    },
+  },
+];
+
 export default function DashboardPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
+  const [presetLaunching, setPresetLaunching] = useState<string | null>(null);
+  const [resettingAll, setResettingAll] = useState(false);
   const { confirm } = useConfirm();
   const editName = useEditName();
 
@@ -113,6 +170,53 @@ export default function DashboardPage() {
     }
   }
 
+  async function launchDemoPreset(presetKey: string) {
+    const preset = demoPresets.find((item) => item.key === presetKey);
+    if (!preset) return;
+
+    setPresetLaunching(presetKey);
+    try {
+      const scenario = await api("/api/scenarios", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${preset.name} (${new Date().toLocaleTimeString()})`,
+          description: preset.description,
+          config_json: preset.config_json,
+        }),
+      });
+
+      const result = await api("/api/sandboxes", {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: scenario.id }),
+      });
+
+      window.location.href = `/sandbox/${result.container_id}`;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Demo launch failed");
+      setPresetLaunching(null);
+    }
+  }
+
+  async function resetAllSandboxes() {
+    const ok = await confirm({
+      title: "Reset all sandboxes",
+      description: "This will destroy all active sandbox containers and clear active session records.",
+      confirmText: "Reset all",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    setResettingAll(true);
+    try {
+      await api("/api/cleanup", { method: "POST" });
+      setSandboxes([]);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Reset failed");
+    } finally {
+      setResettingAll(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -127,12 +231,65 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between animate-fade-in-up">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Link href="/scenarios">
-          <Button variant="onyx" size="sm">
-            <Plus className="size-4" />
-            New Sandbox
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetAllSandboxes}
+            disabled={resettingAll || sandboxes.length === 0}
+          >
+            <RotateCcw className="size-4" />
+            {resettingAll ? "Resetting..." : "Reset all"}
           </Button>
-        </Link>
+          <Link href="/scenarios">
+            <Button variant="onyx" size="sm">
+              <Plus className="size-4" />
+              New Sandbox
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Demo Presets */}
+      <div className="animate-fade-in-up" style={{ animationDelay: "25ms" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Demo Presets</h2>
+          <span className="text-xs text-muted-foreground">
+            One-click scenario + launch with synthetic data and role-config metadata
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {demoPresets.map((preset) => (
+            <div
+              key={preset.key}
+              className="bg-card border border-border p-5 hover:border-onyx-green/30 hover:shadow-sm transition-all"
+            >
+              <h3 className="font-semibold text-sm truncate">{preset.name}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">
+                {preset.description}
+              </p>
+              <Button
+                variant="onyx"
+                size="sm"
+                className="w-full"
+                onClick={() => launchDemoPreset(preset.key)}
+                disabled={presetLaunching === preset.key}
+              >
+                {presetLaunching === preset.key ? (
+                  <span className="dot-loading">
+                    Launching<span>.</span><span>.</span><span>.</span>
+                  </span>
+                ) : (
+                  <>
+                    <Rocket className="size-3.5" />
+                    Launch demo
+                  </>
+                )}
+              </Button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Active Sandboxes Table */}
