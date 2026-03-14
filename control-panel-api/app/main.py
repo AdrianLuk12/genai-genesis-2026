@@ -7,7 +7,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 
-import anthropic
+import requests
 import docker
 from docker.errors import NotFound as DockerNotFound
 from dotenv import load_dotenv
@@ -869,7 +869,6 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
 
 # --- AI Agent Navigation ---
 
-claude_client = anthropic.Anthropic()
 
 AGENT_SYSTEM_PROMPT = """You are a browser navigation agent controlling an e-commerce web application through an iframe. You will be given:
 1. The user's intent (what they want to accomplish)
@@ -977,16 +976,23 @@ Determine the next action."""
     try:
         logger.info(f"Agent request: intent='{body.intent}', url='{body.current_url}', dom_len={len(body.current_dom)}, history_len={len(body.action_history)}")
 
-        response = claude_client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=1024,
-            system=AGENT_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-
-        # Parse Claude's JSON response
-        text = response.content[0].text.strip()
-        logger.info(f"Claude raw response: {text[:500]}")
+        # Call Ollama local endpoint
+        ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+        payload = {
+            "model": "granite3.1-dense:8b",
+            "prompt": f"System: {AGENT_SYSTEM_PROMPT}\n\nUser: {user_message}\n\nAssistant:",
+            "stream": False,
+            "options": {"temperature": 0.0}
+        }
+        
+        try:
+            response = requests.post(ollama_url, json=payload)
+            response.raise_for_status()
+            text = response.json().get("response", "").strip()
+            logger.info(f"Ollama Granite raw response: {text[:500]}")
+        except Exception as e:
+            text = "{}"
+            logger.error(f"Ollama failed to generate: {e}")
 
         # Remove markdown code fences if present
         if text.startswith("```"):
@@ -1011,11 +1017,11 @@ Determine the next action."""
         )
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse Claude response as JSON: {e}")
+        logger.error(f"Failed to parse Ollama response as JSON: {e}")
         logger.error(f"Response text was: {text[:1000]}")
         # Return the raw text so the UI can see what went wrong
         return AgentStepResponse(
-            action=AgentAction(type="wait", description=f"Parse error - Claude said: {text[:200]}"),
+            action=AgentAction(type="wait", description=f"Parse error - Ollama said: {text[:200]}"),
             reasoning=f"Failed to parse: {str(e)}",
             phase="error recovery",
             progress=0.0,
