@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import {
   Upload,
   X,
   Workflow,
+  Package,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -98,6 +100,8 @@ export default function AppDetailPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [versionTag, setVersionTag] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Per-version expanded state
   const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
@@ -206,25 +210,49 @@ export default function AppDetailPage() {
     window.location.href = "/apps";
   }
 
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+
   async function uploadVersion(e: React.FormEvent) {
     e.preventDefault();
     if (!uploadFile) return;
     setUploading(true);
+    setUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append("file", uploadFile);
       formData.append("version_tag", versionTag);
-      const res = await fetch(`${API_URL}/api/apps/${appId}/versions`, {
-        method: "POST",
-        body: formData,
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}/api/apps/${appId}/versions`);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            try {
+              const body = JSON.parse(xhr.responseText);
+              reject(new Error(body.detail || `Upload failed: ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.send(formData);
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `Upload failed: ${res.status}`);
-      }
       setUploadFile(null);
       setVersionTag("");
       setShowUploadForm(false);
+      setUploadProgress(0);
       loadVersions();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
@@ -422,13 +450,82 @@ export default function AppDetailPage() {
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                   Docker Image (.tar)
                 </label>
-                <Input
-                  type="file"
-                  accept=".tar"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  required
-                />
+                {!uploadFile ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file?.name.endsWith(".tar")) setUploadFile(file);
+                    }}
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = ".tar";
+                      input.onchange = (ev) => {
+                        const file = (ev.target as HTMLInputElement).files?.[0];
+                        if (file) setUploadFile(file);
+                      };
+                      input.click();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        (e.target as HTMLElement).click();
+                      }
+                    }}
+                    className={cn(
+                      "border-2 border-dashed py-8 px-4 flex flex-col items-center gap-3 cursor-pointer transition-all duration-200",
+                      dragOver
+                        ? "border-onyx-green bg-onyx-green/5"
+                        : "border-border hover:border-muted-foreground/30 hover:bg-muted/30"
+                    )}
+                  >
+                    <div className={cn(
+                      "size-10 flex items-center justify-center border transition-colors",
+                      dragOver ? "border-onyx-green/30 bg-onyx-green/10" : "border-border bg-muted/50"
+                    )}>
+                      <Upload className={cn("size-5 transition-colors", dragOver ? "text-onyx-green" : "text-muted-foreground")} />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium">
+                        {dragOver ? "Drop file here" : "Drop your .tar file here"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        or click to browse
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border border-border bg-muted/20 p-3 flex items-center gap-3">
+                    <div className="size-9 flex items-center justify-center bg-onyx-green/10 border border-onyx-green/20 shrink-0">
+                      <Package className="size-4 text-onyx-green" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{uploadFile.name}</p>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {formatFileSize(uploadFile.size)}
+                      </p>
+                    </div>
+                    {!uploading && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setUploadFile(null)}
+                        className="text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                   Version Tag
@@ -438,10 +535,27 @@ export default function AppDetailPage() {
                   onChange={(e) => setVersionTag(e.target.value)}
                   required
                   placeholder="e.g. v1.0.0"
+                  disabled={uploading}
                 />
               </div>
+
+              {uploading && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Uploading image...</span>
+                    <span className="font-mono text-muted-foreground">{uploadProgress}%</span>
+                  </div>
+                  <div className="h-1 bg-border overflow-hidden">
+                    <div
+                      className="h-full bg-onyx-green transition-all duration-300 ease-out"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end">
-                <Button type="submit" variant="onyx" disabled={uploading}>
+                <Button type="submit" variant="onyx" disabled={uploading || !uploadFile}>
                   {uploading ? "Uploading..." : "Upload"}
                 </Button>
               </div>
