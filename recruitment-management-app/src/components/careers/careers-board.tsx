@@ -26,18 +26,18 @@ export function CareersBoard({ previewMode = false }: Props) {
   }, []);
 
   return (
-    <section className="stack">
-      <header className="page-head">
+    <section className="stack" data-testid={previewMode ? "candidate-preview-board" : "careers-board"}>
+      <header className="page-head" data-testid="careers-board-header">
         <div>
           <p className="eyebrow-light">
             {previewMode ? "Admin preview of candidate experience" : "User-facing candidate experience"}
           </p>
-          <h2 className="title">Careers</h2>
+          <h2 className="title title-contrast">Careers</h2>
         </div>
         {previewMode ? (
-          <span className="pill">Preview mode</span>
+          <span className="pill" data-testid="preview-mode-badge">Preview mode</span>
         ) : (
-          <Link href="/careers/apply" className="link-btn">
+          <Link href="/careers/apply" className="link-btn" data-testid="careers-apply-now-button">
             Apply Now
           </Link>
         )}
@@ -45,9 +45,9 @@ export function CareersBoard({ previewMode = false }: Props) {
 
       {previewMode ? <p className="muted">This page mirrors the candidate jobs view for recruiter QA.</p> : null}
 
-      <section className="product-grid">
+      <section className="product-grid" data-testid="careers-job-grid">
         {jobs.map((job) => (
-          <article key={job.id} className="panel product-card">
+          <article key={job.id} className="panel product-card" data-testid={`job-card-${job.id}`}>
             <h3>{job.title}</h3>
             <p className="muted">{job.department}</p>
             <p>
@@ -57,9 +57,9 @@ export function CareersBoard({ previewMode = false }: Props) {
               <strong>Openings:</strong> {job.openings}
             </p>
             {previewMode ? (
-              <span className="button-secondary">Candidate apply CTA</span>
+              <span className="button-secondary" data-testid={`job-preview-cta-${job.id}`}>Candidate apply CTA</span>
             ) : (
-              <Link href={`/careers/apply?jobId=${job.id}`} className="link-btn">
+              <Link href={`/careers/apply?jobId=${job.id}`} className="link-btn" data-testid={`job-apply-button-${job.id}`}>
                 Apply for this role
               </Link>
             )}

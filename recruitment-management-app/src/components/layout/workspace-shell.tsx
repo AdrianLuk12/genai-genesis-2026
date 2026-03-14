@@ -61,8 +61,8 @@ export function WorkspaceShell({ children }: Props) {
   }
 
   return (
-    <div className="workspace-shell">
-      <aside className="workspace-sidebar">
+    <div className="workspace-shell" data-testid="workspace-shell">
+      <aside className="workspace-sidebar" data-testid="workspace-sidebar">
         <div className="brand-block">
           <p className="eyebrow">{isCandidateView ? "Candidate Portal" : "Recruitment OS"}</p>
           <h1 className="brand">RecruitOps</h1>
@@ -73,10 +73,11 @@ export function WorkspaceShell({ children }: Props) {
           </p>
         </div>
 
-        <nav className="nav-list">
+        <nav className="nav-list" data-testid={isCandidateView ? "candidate-nav" : "admin-nav"}>
           {navItems.map((item) => {
+            const exactOnly = item.href === "/admin" || item.href === "/careers" || item.href === "/careers/apply";
             const active =
-              item.href === "/admin"
+              exactOnly
                 ? pathname === item.href
                 : pathname === item.href || pathname?.startsWith(`${item.href}/`);
             return (
@@ -85,6 +86,7 @@ export function WorkspaceShell({ children }: Props) {
                 href={item.href}
                 className={`nav-link ${active ? "is-active" : ""}`}
                 aria-current={active ? "page" : undefined}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 {item.label}
               </Link>
@@ -93,8 +95,8 @@ export function WorkspaceShell({ children }: Props) {
         </nav>
       </aside>
 
-      <div className="workspace-main">
-        <header className="workspace-topbar">
+      <div className="workspace-main" data-testid="workspace-main">
+        <header className="workspace-topbar" data-testid="workspace-topbar">
           <div>
             <p className="eyebrow-light">Operations Workspace</p>
             <h2 className="workspace-title">{heading.title}</h2>
@@ -106,12 +108,13 @@ export function WorkspaceShell({ children }: Props) {
             onClick={handleLogout}
             className="button-secondary"
             disabled={loggingOut}
+            data-testid="signout-button"
           >
             {loggingOut ? "Signing out..." : "Sign out"}
           </button>
         </header>
 
-        <main className="main-content">{children}</main>
+        <main className="main-content" data-testid="workspace-content">{children}</main>
       </div>
     </div>
   );
