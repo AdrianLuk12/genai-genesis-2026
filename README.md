@@ -7,7 +7,7 @@ Three services:
 | Service | Stack | Port |
 |---|---|---|
 | `control-panel-ui` | Next.js, Tailwind, shadcn/ui | 3000 |
-| `control-panel-api` | Python FastAPI, docker-py, SQLite | 8000 |
+| `control-panel-api` | Python FastAPI, docker-py, SQLite/IBM Db2 | 8000 |
 | `target-app-template` | Next.js, SQLite, Faker.js | 3000 (inside containers, mapped to 8001–8050) |
 
 ## Prerequisites
@@ -35,6 +35,21 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Create `.env` from the template:
+
+```bash
+cp .env.example .env
+```
+
+Default local mode uses SQLite (`DB_PROVIDER=sqlite`).
+
+To use IBM Db2, set:
+
+- `DB_PROVIDER=db2`
+- Either `DB2_DSN` or split fields: `DB2_HOST`, `DB2_PORT`, `DB2_DATABASE`, `DB2_USERNAME`, `DB2_PASSWORD`
+- `DB2_SECURITY=SSL`
+- Optional CA certificate via `DB2_SSL_CA_FILE` or `DB2_SSL_CA_BASE64` + `DB2_SSL_CA_NAME`
+
 Start:
 
 ```bash
@@ -42,7 +57,7 @@ source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-The API auto-creates its local database and file storage in `control-panel-api/data/` on first run. No external services or configuration needed.
+The API auto-creates its local database and file storage in `control-panel-api/data/` on first run when using SQLite mode. Db2 mode requires IBM Cloud Db2 credentials.
 
 API docs at http://localhost:8000/docs.
 

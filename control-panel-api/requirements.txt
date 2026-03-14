@@ -3,3 +3,4 @@ uvicorn[standard]
 docker
 python-multipart
 python-dotenv
+ibm-db
