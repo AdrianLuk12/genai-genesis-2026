@@ -344,11 +344,11 @@ async def list_workflows(app_version_id: str = Query(None)):
     db = get_db()
     if app_version_id:
         rows = db.execute(
-            "SELECT * FROM workflows WHERE app_version_id = ? ORDER BY created_at DESC",
+            "SELECT w.*, s.name AS scenario_name FROM workflows w LEFT JOIN scenarios s ON w.scenario_id = s.id WHERE w.app_version_id = ? ORDER BY w.created_at DESC",
             (app_version_id,),
         ).fetchall()
     else:
-        rows = db.execute("SELECT * FROM workflows ORDER BY created_at DESC").fetchall()
+        rows = db.execute("SELECT w.*, s.name AS scenario_name FROM workflows w LEFT JOIN scenarios s ON w.scenario_id = s.id ORDER BY w.created_at DESC").fetchall()
     db.close()
     return [row_to_dict(r) for r in rows]
 
@@ -538,6 +538,7 @@ async def delete_scenario(scenario_id: str):
         if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
             os.rmdir(parent_dir)
 
+    db.execute("DELETE FROM workflows WHERE scenario_id = ?", (scenario_id,))
     db.execute("DELETE FROM scenarios WHERE id = ?", (scenario_id,))
     db.commit()
     db.close()

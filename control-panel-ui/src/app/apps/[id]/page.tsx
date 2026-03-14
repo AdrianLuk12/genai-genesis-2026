@@ -53,6 +53,7 @@ interface WorkflowEntry {
   name: string;
   steps_json: unknown[];
   scenario_id: string;
+  scenario_name?: string;
   created_at: string;
 }
 
@@ -381,10 +382,14 @@ export default function AppDetailPage() {
   }
 
   async function deleteScenario(scenarioId: string, versionId: string) {
+    const affectedWorkflows = (versionWorkflows[versionId] || []).filter(
+      (w) => w.scenario_id === scenarioId
+    );
     const ok = await confirm({
       title: "Delete Scenario",
-      description:
-        "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
+      description: affectedWorkflows.length > 0
+        ? `This scenario and ${affectedWorkflows.length} associated workflow${affectedWorkflows.length === 1 ? "" : "s"} will be permanently removed. Any sandboxes launched from it will not be affected.`
+        : "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
       confirmText: "Delete",
       variant: "destructive",
     });
@@ -393,6 +398,10 @@ export default function AppDetailPage() {
     setVersionScenarios((prev) => ({
       ...prev,
       [versionId]: (prev[versionId] || []).filter((s) => s.id !== scenarioId),
+    }));
+    setVersionWorkflows((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).filter((w) => w.scenario_id !== scenarioId),
     }));
   }
 
@@ -1121,7 +1130,7 @@ function VersionRow({
                               )}
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground">
-                              {scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}
+                              {wf.scenario_name || scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}
                             </td>
                             <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                               {new Date(wf.created_at).toLocaleDateString()}
