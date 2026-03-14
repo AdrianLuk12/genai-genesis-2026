@@ -273,14 +273,44 @@ export default function ScenarioDetailPage() {
         </div>
       </div>
 
-      {/* Config JSON */}
+      {/* Configuration */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h2 className="text-sm font-semibold mb-2">Configuration</h2>
-        <div className="bg-card border border-border p-4">
-          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap overflow-auto max-h-64">
-            {JSON.stringify(scenario.config_json, null, 2)}
-          </pre>
-        </div>
+        {(() => {
+          const cfg = (scenario.config_json || {}) as Record<string, unknown>;
+          const startUrl = cfg.start_url as string || "/";
+          const env = (cfg.env || {}) as Record<string, string>;
+          const envEntries = Object.entries(env);
+          // For legacy configs that don't have the env/start_url structure,
+          // show all top-level keys except start_url and env as env vars
+          const legacyEntries = Object.entries(cfg).filter(([k]) => k !== "start_url" && k !== "env");
+          const allEnv = envEntries.length > 0 ? envEntries : legacyEntries;
+
+          return (
+            <div className="bg-card border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <tbody>
+                  <tr className="border-b border-border/50">
+                    <td className="py-2.5 px-4 text-xs text-muted-foreground w-48">Starting URL</td>
+                    <td className="py-2.5 px-4 font-mono text-xs">{startUrl}</td>
+                  </tr>
+                  {allEnv.length > 0 ? (
+                    allEnv.map(([key, val]) => (
+                      <tr key={key} className="border-b border-border/50 last:border-0">
+                        <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{key}</td>
+                        <td className="py-2.5 px-4 font-mono text-xs">{typeof val === "object" ? JSON.stringify(val) : String(val)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="py-2.5 px-4 text-xs text-muted-foreground" colSpan={2}>No environment variables set</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Walkthrough Steps */}

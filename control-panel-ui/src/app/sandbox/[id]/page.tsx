@@ -153,6 +153,29 @@ export default function SandboxViewPage() {
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [pollKey, setPollKey] = useState(0);
 
+  // Inline prompt (replaces browser prompt())
+  const [inlinePrompt, setInlinePrompt] = useState<{ label: string; value: string } | null>(null);
+  const inlinePromptResolveRef = useRef<((v: string | null) => void) | null>(null);
+
+  function showInlinePrompt(label: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      inlinePromptResolveRef.current = resolve;
+      setInlinePrompt({ label, value: defaultValue });
+    });
+  }
+
+  function submitInlinePrompt() {
+    inlinePromptResolveRef.current?.(inlinePrompt?.value ?? null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
+
+  function cancelInlinePrompt() {
+    inlinePromptResolveRef.current?.(null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
+
   // Nav bar state
   const [iframePath, setIframePath] = useState("/");
   const [iframeKey, setIframeKey] = useState(0);
@@ -377,7 +400,7 @@ export default function SandboxViewPage() {
 
   async function saveState() {
     const defaultName = "Scenario - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save State", currentName: defaultName });
+    const name = await showInlinePrompt("Save State", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -402,7 +425,7 @@ export default function SandboxViewPage() {
       return;
     }
     const defaultName = "Workflow - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save Workflow", currentName: defaultName });
+    const name = await showInlinePrompt("Save Workflow", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -886,6 +909,28 @@ export default function SandboxViewPage() {
           </Button>
         </div>
       </div>
+
+      {/* Inline prompt */}
+      {inlinePrompt && (
+        <div className="bg-card border-b border-border px-4 py-2.5 shrink-0 animate-fade-in-scale">
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitInlinePrompt(); }}
+            className="flex gap-2 items-center"
+          >
+            <span className="text-xs font-medium text-muted-foreground shrink-0">{inlinePrompt.label}</span>
+            <input
+              type="text"
+              value={inlinePrompt.value}
+              onChange={(e) => setInlinePrompt({ ...inlinePrompt, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Escape") cancelInlinePrompt(); }}
+              className="flex-1 h-8 px-3 text-sm bg-background border border-input outline-none focus:border-ring"
+              autoFocus
+            />
+            <Button type="submit" variant="onyx" size="xs">Save</Button>
+            <Button type="button" variant="ghost" size="xs" onClick={cancelInlinePrompt}>Cancel</Button>
+          </form>
+        </div>
+      )}
 
       {/* Agent input */}
       {agentShowInput && !agentRunning && (
