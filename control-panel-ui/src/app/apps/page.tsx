@@ -5,79 +5,59 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-modal";
 import { useEditScenario } from "@/components/ui/edit-name-modal";
 import {
-  FlaskConical,
-  Play,
+  Box,
   Trash2,
   Pencil,
   Plus,
   X,
   Search,
-  GitBranch,
+  Eye,
 } from "lucide-react";
+import Link from "next/link";
 
-interface Scenario {
+interface App {
   id: string;
   name: string;
   description: string;
-  config_json: Record<string, unknown>;
   created_at: string;
-  parent_scenario_id: string | null;
 }
 
-function LaunchOverlay() {
-  const [msgIndex, setMsgIndex] = useState(0);
-  const msgs = ["Provisioning sandbox", "Starting container", "Almost ready"];
-
-  useEffect(() => {
-    const t = setInterval(() => setMsgIndex((i) => Math.min(i + 1, msgs.length - 1)), 3000);
-    return () => clearInterval(t);
-  }, [msgs.length]);
-
-  return (
-    <div className="absolute inset-0 z-10 bg-card/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 animate-fade-in rounded-none">
-      <div className="w-24 h-1 bg-border relative overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-onyx-green animate-progress-fill" />
-      </div>
-      <p
-        key={msgIndex}
-        className="text-xs text-muted-foreground animate-fade-in"
-      >
-        {msgs[msgIndex]}
-        <span className="dot-loading">
-          <span className="inline-block">.</span>
-          <span className="inline-block">.</span>
-          <span className="inline-block">.</span>
-        </span>
-      </p>
-    </div>
-  );
-}
-
-export default function ScenariosPage() {
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+export default function AppsPage() {
+  const [apps, setApps] = useState<App[]>([]);
+  const [versionCounts, setVersionCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [launching, setLaunching] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [configJson, setConfigJson] = useState("{}");
   const [search, setSearch] = useState("");
   const { confirm } = useConfirm();
   const editScenario = useEditScenario();
 
   useEffect(() => {
-    loadScenarios();
+    loadApps();
   }, []);
 
-  async function loadScenarios() {
+  async function loadApps() {
     setLoading(true);
     try {
-      const data = await api("/api/scenarios");
-      setScenarios(data);
+      const data: App[] = await api("/api/apps");
+      setApps(data);
+      // Fetch version counts for each app
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        data.map(async (app) => {
+          try {
+            const versions = await api(`/api/apps/${app.id}/versions`);
+            counts[app.id] = versions.length;
+          } catch {
+            counts[app.id] = 0;
+          }
+        })
+      );
+      setVersionCounts(counts);
     } catch (e) {
       console.error(e);
     } finally {
@@ -85,83 +65,64 @@ export default function ScenariosPage() {
     }
   }
 
-  async function createScenario(e: React.FormEvent) {
+  async function createApp(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const parsed = JSON.parse(configJson);
-      await api("/api/scenarios", {
+      await api("/api/apps", {
         method: "POST",
-        body: JSON.stringify({
-          name,
-          description,
-          config_json: parsed,
-        }),
+        body: JSON.stringify({ name, description }),
       });
       setName("");
       setDescription("");
-      setConfigJson("{}");
       setShowForm(false);
-      loadScenarios();
+      loadApps();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create scenario");
+      alert(err instanceof Error ? err.message : "Failed to create app");
     }
   }
 
-  async function launchSandbox(scenarioId: string) {
-    setLaunching(scenarioId);
-    try {
-      const result = await api("/api/sandboxes", {
-        method: "POST",
-        body: JSON.stringify({ scenario_id: scenarioId }),
-      });
-      window.location.href = `/sandbox/${result.container_id}`;
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Launch failed");
-      setLaunching(null);
-    }
-  }
-
-  async function renameScenario(sc: Scenario) {
+  async function renameApp(app: App) {
     const result = await editScenario({
-      title: "Edit Scenario",
-      currentName: sc.name,
-      currentDescription: sc.description,
+      title: "Edit App",
+      currentName: app.name,
+      currentDescription: app.description,
     });
     if (!result) return;
-    const prev = scenarios.map((s) => ({ ...s }));
-    setScenarios((scs) =>
-      scs.map((s) =>
-        s.id === sc.id
-          ? { ...s, name: result.name || s.name, description: result.description }
-          : s
+    const prev = apps.map((a) => ({ ...a }));
+    setApps((list) =>
+      list.map((a) =>
+        a.id === app.id
+          ? { ...a, name: result.name || a.name, description: result.description }
+          : a
       )
     );
     try {
-      await api(`/api/scenarios/${sc.id}`, {
+      await api(`/api/apps/${app.id}`, {
         method: "PATCH",
         body: JSON.stringify({ name: result.name, description: result.description }),
       });
     } catch {
-      setScenarios(prev);
+      setApps(prev);
     }
   }
 
-  async function deleteScenario(id: string) {
+  async function deleteApp(id: string) {
     const ok = await confirm({
-      title: "Delete Scenario",
-      description: "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
+      title: "Delete App",
+      description:
+        "This app and all its versions will be permanently removed. Any sandboxes launched from it will not be affected.",
       confirmText: "Delete",
       variant: "destructive",
     });
     if (!ok) return;
-    await api(`/api/scenarios/${id}`, { method: "DELETE" });
-    setScenarios(scenarios.filter((s) => s.id !== id));
+    await api(`/api/apps/${id}`, { method: "DELETE" });
+    setApps(apps.filter((a) => a.id !== id));
   }
 
-  const filtered = scenarios.filter(
-    (sc) =>
-      sc.name.toLowerCase().includes(search.toLowerCase()) ||
-      sc.description.toLowerCase().includes(search.toLowerCase())
+  const filtered = apps.filter(
+    (app) =>
+      app.name.toLowerCase().includes(search.toLowerCase()) ||
+      app.description.toLowerCase().includes(search.toLowerCase())
   );
 
   if (loading) {
@@ -179,9 +140,9 @@ export default function ScenariosPage() {
       {/* Header */}
       <div className="flex items-center justify-between animate-fade-in-up">
         <div>
-          <h1 className="text-2xl font-semibold">Scenarios</h1>
+          <h1 className="text-2xl font-semibold">Apps</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Configure and manage test scenarios
+            Manage your applications and Docker images
           </p>
         </div>
         <Button
@@ -197,7 +158,7 @@ export default function ScenariosPage() {
           ) : (
             <>
               <Plus className="size-4" />
-              New Scenario
+              New App
             </>
           )}
         </Button>
@@ -206,8 +167,8 @@ export default function ScenariosPage() {
       {/* Create form */}
       {showForm && (
         <div className="bg-card rounded-none border border-border p-6 animate-fade-in-scale">
-          <h3 className="font-semibold mb-4">Create Scenario</h3>
-          <form onSubmit={createScenario} className="space-y-4">
+          <h3 className="font-semibold mb-4">Create App</h3>
+          <form onSubmit={createApp} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                 Name
@@ -216,7 +177,7 @@ export default function ScenariosPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                placeholder="e.g. Low Inventory Test"
+                placeholder="e.g. My E-Commerce Store"
               />
             </div>
             <div>
@@ -229,20 +190,8 @@ export default function ScenariosPage() {
                 placeholder="Optional description"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                Config JSON
-              </label>
-              <Textarea
-                value={configJson}
-                onChange={(e) => setConfigJson(e.target.value)}
-                rows={4}
-                className="font-mono text-xs"
-                placeholder='{"product_count": 10, "inventory_status": "low"}'
-              />
-            </div>
             <div className="flex justify-end">
-              <Button type="submit" variant="onyx">Create Scenario</Button>
+              <Button type="submit" variant="onyx">Create App</Button>
             </div>
           </form>
         </div>
@@ -255,12 +204,12 @@ export default function ScenariosPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search scenarios..."
+            placeholder="Search apps..."
             className="pl-9"
           />
         </div>
         <span className="text-xs text-muted-foreground">
-          {filtered.length} of {scenarios.length} scenarios
+          {filtered.length} of {apps.length} apps
         </span>
       </div>
 
@@ -268,11 +217,11 @@ export default function ScenariosPage() {
       <div className="bg-card rounded-none border border-border overflow-hidden animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         {filtered.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3">
-            <FlaskConical className="size-8 text-muted-foreground/40" />
+            <Box className="size-8 text-muted-foreground/40" />
             <p className="text-sm text-muted-foreground">
-              {scenarios.length === 0 ? "No scenarios yet" : "No matches found"}
+              {apps.length === 0 ? "No apps yet" : "No matches found"}
             </p>
-            {scenarios.length === 0 && (
+            {apps.length === 0 && (
               <p className="text-xs text-muted-foreground/60">
                 Create one to get started
               </p>
@@ -284,66 +233,52 @@ export default function ScenariosPage() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Name</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Description</th>
-                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Config</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Versions</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Created</th>
                 <th className="text-right py-2.5 px-4 text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((sc) => (
+              {filtered.map((app) => (
                 <tr
-                  key={sc.id}
-                  className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
+                  key={app.id}
+                  className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                 >
-                  {launching === sc.id && (
-                    <td colSpan={5} className="absolute inset-0">
-                      <LaunchOverlay />
-                    </td>
-                  )}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
-                        onClick={() => renameScenario(sc)}
+                        onClick={() => renameApp(app)}
                       >
-                        {sc.name}
+                        {app.name}
                         <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
                       </button>
-                      {sc.parent_scenario_id && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          <GitBranch className="size-2.5 mr-0.5" />
-                          walkthrough
-                        </Badge>
-                      )}
                     </div>
                   </td>
                   <td className="py-3 px-4 text-muted-foreground max-w-[200px] truncate">
-                    {sc.description || "---"}
+                    {app.description || "---"}
                   </td>
                   <td className="py-3 px-4">
-                    <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 max-w-[160px] truncate block">
-                      {JSON.stringify(sc.config_json)}
-                    </code>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {versionCounts[app.id] ?? 0}
+                    </Badge>
                   </td>
                   <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(sc.created_at).toLocaleDateString()}
+                    {new Date(app.created_at).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="onyx"
-                        size="xs"
-                        onClick={() => launchSandbox(sc.id)}
-                        disabled={launching === sc.id}
-                      >
-                        <Play className="size-3" />
-                        Launch
-                      </Button>
+                      <Link href={`/apps/${app.id}`}>
+                        <Button variant="onyx" size="xs">
+                          <Eye className="size-3" />
+                          View
+                        </Button>
+                      </Link>
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => deleteScenario(sc.id)}
+                        onClick={() => deleteApp(app.id)}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         title="Delete"
                       >

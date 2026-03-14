@@ -11,13 +11,15 @@ import anthropic
 import docker
 from docker.errors import NotFound as DockerNotFound
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, Form, HTTPException, Query, UploadFile, File
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+
 load_dotenv()
 
-from app.db import init_db, get_db, FILES_DIR
+from app.db import init_db, get_db, FILES_DIR, IMAGES_DIR
 
 app = FastAPI(title="Sandbox Platform API")
 
@@ -73,13 +75,14 @@ def rebuild_used_ports():
 
 
 def row_to_dict(row) -> dict:
-    """Convert a sqlite3.Row to a dict, parsing config_json back to a dict."""
+    """Convert a sqlite3.Row to a dict, parsing JSON string fields back to dicts/lists."""
     d = dict(row)
-    if "config_json" in d and isinstance(d["config_json"], str):
-        try:
-            d["config_json"] = json.loads(d["config_json"])
-        except (json.JSONDecodeError, TypeError):
-            d["config_json"] = {}
+    for key in ("config_json", "steps_json"):
+        if key in d and isinstance(d[key], str):
+            try:
+                d[key] = json.loads(d[key])
+            except (json.JSONDecodeError, TypeError):
+                d[key] = {} if key == "config_json" else []
     return d
 
 
@@ -104,18 +107,329 @@ async def health():
     return {"status": status, "docker": docker_status}
 
 
+# --- App Management ---
+
+class AppCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class AppUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@app.get("/api/apps")
+async def list_apps():
+    db = get_db()
+    rows = db.execute("SELECT * FROM apps ORDER BY created_at DESC").fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/apps")
+async def create_app(body: AppCreate):
+    app_id = str(uuid.uuid4())
+    db = get_db()
+    db.execute(
+        "INSERT INTO apps (id, name, description) VALUES (?, ?, ?)",
+        (app_id, body.name, body.description),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    db.close()
+    return dict(row)
+
+
+@app.get("/api/apps/{app_id}")
+async def get_app(app_id: str):
+    db = get_db()
+    row = db.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="App not found")
+    return dict(row)
+
+
+@app.patch("/api/apps/{app_id}")
+async def update_app(app_id: str, body: AppUpdate):
+    db = get_db()
+    row = db.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="App not found")
+
+    updates = []
+    params = []
+    if body.name is not None:
+        updates.append("name = ?")
+        params.append(body.name)
+    if body.description is not None:
+        updates.append("description = ?")
+        params.append(body.description)
+
+    if updates:
+        params.append(app_id)
+        db.execute(f"UPDATE apps SET {', '.join(updates)} WHERE id = ?", params)
+        db.commit()
+
+    row = db.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    db.close()
+    return dict(row)
+
+
+def _delete_version_resources(db, version_id: str, app_id: str):
+    """Delete all resources associated with an app version."""
+    # Delete scenarios for this version
+    scenario_rows = db.execute(
+        "SELECT * FROM scenarios WHERE app_version_id = ?", (version_id,)
+    ).fetchall()
+    for s in scenario_rows:
+        if s.get("db_file_path"):
+            file_path = os.path.join(FILES_DIR, s["db_file_path"])
+            if os.path.exists(file_path):
+                os.remove(file_path)
+    db.execute("DELETE FROM scenarios WHERE app_version_id = ?", (version_id,))
+
+    # Delete workflows for this version
+    db.execute("DELETE FROM workflows WHERE app_version_id = ?", (version_id,))
+
+    # Delete Docker image tar file
+    tar_path = os.path.join(IMAGES_DIR, app_id, f"{version_id}.tar")
+    if os.path.exists(tar_path):
+        os.remove(tar_path)
+
+    # Remove Docker image
+    image_name = f"monkeylab-{app_id}-{version_id}:latest"
+    try:
+        client = get_docker()
+        client.images.remove(image_name, force=True)
+    except Exception:
+        pass
+
+
+@app.delete("/api/apps/{app_id}")
+async def delete_app(app_id: str):
+    db = get_db()
+    row = db.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="App not found")
+
+    # Get all versions and cascade delete
+    versions = db.execute(
+        "SELECT * FROM app_versions WHERE app_id = ?", (app_id,)
+    ).fetchall()
+    for v in versions:
+        _delete_version_resources(db, v["id"], app_id)
+    db.execute("DELETE FROM app_versions WHERE app_id = ?", (app_id,))
+
+    # Clean up app images directory
+    app_images_dir = os.path.join(IMAGES_DIR, app_id)
+    if os.path.isdir(app_images_dir):
+        shutil.rmtree(app_images_dir)
+
+    db.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+    db.commit()
+    db.close()
+    return {"success": True}
+
+
+# --- App Versions ---
+
+@app.get("/api/apps/{app_id}/versions")
+async def list_versions(app_id: str):
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM app_versions WHERE app_id = ? ORDER BY created_at DESC",
+        (app_id,),
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/apps/{app_id}/versions")
+async def upload_version(
+    app_id: str,
+    version_tag: str = Form(...),
+    file: UploadFile = File(...),
+):
+    db = get_db()
+    row = db.execute("SELECT id FROM apps WHERE id = ?", (app_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="App not found")
+
+    version_id = str(uuid.uuid4())
+
+    # Save tar file to disk
+    tar_dir = os.path.join(IMAGES_DIR, app_id)
+    os.makedirs(tar_dir, exist_ok=True)
+    tar_path = os.path.join(tar_dir, f"{version_id}.tar")
+
+    content = await file.read()
+    with open(tar_path, "wb") as f:
+        f.write(content)
+
+    # Load image into Docker
+    client = get_docker()
+    with open(tar_path, "rb") as f:
+        loaded = client.images.load(f)
+
+    # Re-tag to unique name
+    image_name = f"monkeylab-{app_id}-{version_id}:latest"
+    if loaded:
+        loaded[0].tag(f"monkeylab-{app_id}-{version_id}", tag="latest")
+
+    # Save version record
+    db.execute(
+        "INSERT INTO app_versions (id, app_id, version_tag, docker_image_name) VALUES (?, ?, ?, ?)",
+        (version_id, app_id, version_tag, image_name),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM app_versions WHERE id = ?", (version_id,)).fetchone()
+    db.close()
+
+    return dict(row)
+
+
+@app.delete("/api/apps/{app_id}/versions/{version_id}")
+async def delete_version(app_id: str, version_id: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM app_versions WHERE id = ? AND app_id = ?", (version_id, app_id)
+    ).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    _delete_version_resources(db, version_id, app_id)
+    db.execute("DELETE FROM app_versions WHERE id = ?", (version_id,))
+    db.commit()
+    db.close()
+    return {"success": True}
+
+
+# --- Workflow Management ---
+
+class WorkflowCreate(BaseModel):
+    name: str
+    description: str = ""
+    app_version_id: str
+    scenario_id: str
+    steps_json: list = []
+
+
+@app.post("/api/workflows")
+async def create_workflow(body: WorkflowCreate):
+    workflow_id = str(uuid.uuid4())
+    db = get_db()
+    db.execute(
+        "INSERT INTO workflows (id, name, description, app_version_id, scenario_id, steps_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (workflow_id, body.name, body.description, body.app_version_id, body.scenario_id, json.dumps(body.steps_json)),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    db.close()
+    return row_to_dict(row)
+
+
+@app.get("/api/workflows")
+async def list_workflows(app_version_id: str = Query(None)):
+    db = get_db()
+    if app_version_id:
+        rows = db.execute(
+            "SELECT * FROM workflows WHERE app_version_id = ? ORDER BY created_at DESC",
+            (app_version_id,),
+        ).fetchall()
+    else:
+        rows = db.execute("SELECT * FROM workflows ORDER BY created_at DESC").fetchall()
+    db.close()
+    return [row_to_dict(r) for r in rows]
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str):
+    db = get_db()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return row_to_dict(row)
+
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow(workflow_id: str):
+    db = get_db()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    db.execute("DELETE FROM workflows WHERE id = ?", (workflow_id,))
+    db.commit()
+    db.close()
+    return {"success": True}
+
+
+class SaveWorkflowRequest(BaseModel):
+    name: str
+    steps_json: list = []
+
+
+@app.post("/api/sandboxes/{container_id}/save-workflow")
+async def save_workflow(container_id: str, body: SaveWorkflowRequest):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM active_containers WHERE container_id = ?", (container_id,)
+    ).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+
+    record = dict(row)
+
+    if not body.steps_json:
+        db.close()
+        raise HTTPException(status_code=400, detail="No steps to save")
+
+    # Get app_version_id from the sandbox's scenario or container record
+    scenario_row = db.execute(
+        "SELECT app_version_id FROM scenarios WHERE id = ?", (record["scenario_id"],)
+    ).fetchone()
+    app_version_id = scenario_row["app_version_id"] if scenario_row else record.get("app_version_id")
+    if not app_version_id:
+        app_version_id = record.get("app_version_id", "")
+
+    workflow_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO workflows (id, name, app_version_id, scenario_id, steps_json) VALUES (?, ?, ?, ?, ?)",
+        (workflow_id, body.name, app_version_id or "", record["scenario_id"], json.dumps(body.steps_json)),
+    )
+    db.commit()
+    new_row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    db.close()
+    return row_to_dict(new_row)
+
+
 # --- Scenario Management ---
 
 class ScenarioCreate(BaseModel):
     name: str
     description: str = ""
     config_json: dict = {}
+    app_version_id: str | None = None
 
 
 @app.get("/api/scenarios")
-async def list_scenarios():
+async def list_scenarios(app_version_id: str = Query(None)):
     db = get_db()
-    rows = db.execute("SELECT * FROM scenarios ORDER BY created_at DESC").fetchall()
+    if app_version_id:
+        rows = db.execute(
+            "SELECT * FROM scenarios WHERE app_version_id = ? ORDER BY created_at DESC",
+            (app_version_id,),
+        ).fetchall()
+    else:
+        rows = db.execute("SELECT * FROM scenarios ORDER BY created_at DESC").fetchall()
     db.close()
     return [row_to_dict(r) for r in rows]
 
@@ -135,8 +449,8 @@ async def create_scenario(body: ScenarioCreate):
     scenario_id = str(uuid.uuid4())
     db = get_db()
     db.execute(
-        "INSERT INTO scenarios (id, name, description, config_json) VALUES (?, ?, ?, ?)",
-        (scenario_id, body.name, body.description, json.dumps(body.config_json)),
+        "INSERT INTO scenarios (id, name, description, config_json, app_version_id) VALUES (?, ?, ?, ?, ?)",
+        (scenario_id, body.name, body.description, json.dumps(body.config_json), body.app_version_id),
     )
     db.commit()
     row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
@@ -244,6 +558,18 @@ async def create_sandbox(body: SandboxCreate):
     client = get_docker()
     port = find_available_port()
 
+    # Resolve Docker image: use app version image or fall back to TARGET_IMAGE
+    image_name = TARGET_IMAGE
+    app_version_id = scenario.get("app_version_id")
+    app_id = None
+    if app_version_id:
+        ver_row = db.execute(
+            "SELECT * FROM app_versions WHERE id = ?", (app_version_id,)
+        ).fetchone()
+        if ver_row:
+            image_name = ver_row["docker_image_name"]
+            app_id = ver_row["app_id"]
+
     # Prepare volume mount for .db file
     volumes = {}
     if scenario.get("db_file_path"):
@@ -259,13 +585,19 @@ async def create_sandbox(body: SandboxCreate):
     if scenario.get("config_json"):
         env["SCENARIO_CONFIG"] = json.dumps(scenario["config_json"])
 
+    labels = {"sandbox-platform": "true"}
+    if app_id:
+        labels["app-id"] = app_id
+    if app_version_id:
+        labels["version-id"] = app_version_id
+
     container = client.containers.run(
-        TARGET_IMAGE,
+        image_name,
         detach=True,
         ports={"3000/tcp": port},
         environment=env,
         volumes=volumes,
-        labels={"sandbox-platform": "true"},
+        labels=labels,
         name=f"sandbox-{uuid.uuid4().hex[:8]}",
     )
 
@@ -275,8 +607,8 @@ async def create_sandbox(body: SandboxCreate):
     # Record in local SQLite
     record_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO active_containers (id, scenario_id, container_id, port, sandbox_url, status) VALUES (?, ?, ?, ?, ?, 'running')",
-        (record_id, body.scenario_id, container.id, port, sandbox_url),
+        "INSERT INTO active_containers (id, scenario_id, container_id, port, sandbox_url, status, app_version_id) VALUES (?, ?, ?, ?, ?, 'running', ?)",
+        (record_id, body.scenario_id, container.id, port, sandbox_url, app_version_id),
     )
     db.commit()
     db.close()
@@ -286,6 +618,7 @@ async def create_sandbox(body: SandboxCreate):
         "container_id": container.id,
         "port": port,
         "scenario_id": body.scenario_id,
+        "app_version_id": app_version_id,
     }
 
 
@@ -435,20 +768,21 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
         with open(abs_path, "wb") as f:
             f.write(db_data)
 
-        # Get parent scenario info for naming
+        # Get parent scenario info for naming and app_version_id
         parent_row = db.execute(
-            "SELECT name FROM scenarios WHERE id = ?", (record["scenario_id"],)
+            "SELECT name, app_version_id FROM scenarios WHERE id = ?", (record["scenario_id"],)
         ).fetchone()
         parent_name = parent_row["name"] if parent_row else "Unknown"
+        app_version_id = parent_row["app_version_id"] if parent_row else record.get("app_version_id")
 
         # Create new scenario
-        name = body.name or f"{parent_name} - Walkthrough {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
-        description = body.description or f"Walkthrough state saved from sandbox {container_id[:12]}"
+        name = body.name or f"{parent_name} - Snapshot {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+        description = body.description or f"State saved from sandbox {container_id[:12]}"
 
         new_id = str(uuid.uuid4())
         db.execute(
-            "INSERT INTO scenarios (id, name, description, config_json, db_file_path, parent_scenario_id) VALUES (?, ?, ?, '{}', ?, ?)",
-            (new_id, name, description, rel_path, record["scenario_id"]),
+            "INSERT INTO scenarios (id, name, description, config_json, db_file_path, parent_scenario_id, app_version_id) VALUES (?, ?, ?, '{}', ?, ?, ?)",
+            (new_id, name, description, rel_path, record["scenario_id"], app_version_id),
         )
         db.commit()
 
@@ -464,17 +798,12 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
         db.close()
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
 
-    # Success — destroy container
+    # Resume the sandbox (don't destroy)
     try:
         container.unpause()
-        container.stop(timeout=5)
-        container.remove()
     except Exception:
         pass
 
-    used_ports.discard(record["port"])
-    db.execute("DELETE FROM active_containers WHERE container_id = ?", (container_id,))
-    db.commit()
     db.close()
 
     return new_scenario

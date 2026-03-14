@@ -7,6 +7,7 @@ import ibm_db_dbi
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 DB_PATH = os.path.join(DATA_DIR, "platform.db")
 FILES_DIR = os.path.join(DATA_DIR, "scenario_files")
+IMAGES_DIR = os.path.join(DATA_DIR, "app_images")
 CERTS_DIR = os.path.join(DATA_DIR, "certs")
 
 
@@ -143,6 +144,21 @@ def _init_sqlite_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS apps (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS app_versions (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL,
+            version_tag TEXT NOT NULL,
+            docker_image_name TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS scenarios (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -150,6 +166,17 @@ def _init_sqlite_db():
             config_json TEXT DEFAULT '{}',
             db_file_path TEXT,
             parent_scenario_id TEXT,
+            app_version_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS workflows (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            app_version_id TEXT NOT NULL,
+            scenario_id TEXT NOT NULL,
+            steps_json TEXT DEFAULT '[]',
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -160,15 +187,27 @@ def _init_sqlite_db():
             port INTEGER NOT NULL,
             sandbox_url TEXT NOT NULL,
             status TEXT DEFAULT 'running',
+            app_version_id TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
     """
     )
 
+    # Migration: add columns if missing on existing tables
     try:
         conn.execute("SELECT name FROM active_containers LIMIT 1")
     except Exception:
         conn.execute("ALTER TABLE active_containers ADD COLUMN name TEXT DEFAULT NULL")
+
+    try:
+        conn.execute("SELECT app_version_id FROM active_containers LIMIT 1")
+    except Exception:
+        conn.execute("ALTER TABLE active_containers ADD COLUMN app_version_id TEXT")
+
+    try:
+        conn.execute("SELECT app_version_id FROM scenarios LIMIT 1")
+    except Exception:
+        conn.execute("ALTER TABLE scenarios ADD COLUMN app_version_id TEXT")
 
     conn.commit()
     conn.close()
@@ -178,6 +217,31 @@ def _init_db2_db():
     dsn = _get_db2_dsn()
     conn = ibm_db_dbi.connect(dsn, "", "")
     cursor = conn.cursor()
+
+    if not _table_exists_db2(conn, "apps"):
+        cursor.execute(
+            """
+            CREATE TABLE apps (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description CLOB(1M) DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
+            )
+            """
+        )
+
+    if not _table_exists_db2(conn, "app_versions"):
+        cursor.execute(
+            """
+            CREATE TABLE app_versions (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                app_id VARCHAR(64) NOT NULL,
+                version_tag VARCHAR(128) NOT NULL,
+                docker_image_name VARCHAR(512) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
+            )
+            """
+        )
 
     if not _table_exists_db2(conn, "scenarios"):
         cursor.execute(
@@ -189,6 +253,22 @@ def _init_db2_db():
                 config_json CLOB(1M) DEFAULT '{}',
                 db_file_path VARCHAR(1024),
                 parent_scenario_id VARCHAR(64),
+                app_version_id VARCHAR(64),
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
+            )
+            """
+        )
+
+    if not _table_exists_db2(conn, "workflows"):
+        cursor.execute(
+            """
+            CREATE TABLE workflows (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description CLOB(1M) DEFAULT '',
+                app_version_id VARCHAR(64) NOT NULL,
+                scenario_id VARCHAR(64) NOT NULL,
+                steps_json CLOB(1M) DEFAULT '[]',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
             )
             """
@@ -204,6 +284,7 @@ def _init_db2_db():
                 port INTEGER NOT NULL,
                 sandbox_url VARCHAR(512) NOT NULL,
                 status VARCHAR(32) DEFAULT 'running',
+                app_version_id VARCHAR(64),
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
             )
             """
@@ -211,6 +292,12 @@ def _init_db2_db():
 
     if not _column_exists_db2(conn, "active_containers", "name"):
         cursor.execute("ALTER TABLE active_containers ADD COLUMN name VARCHAR(255)")
+
+    if not _column_exists_db2(conn, "active_containers", "app_version_id"):
+        cursor.execute("ALTER TABLE active_containers ADD COLUMN app_version_id VARCHAR(64)")
+
+    if not _column_exists_db2(conn, "scenarios", "app_version_id"):
+        cursor.execute("ALTER TABLE scenarios ADD COLUMN app_version_id VARCHAR(64)")
 
     conn.commit()
     cursor.close()
@@ -220,6 +307,7 @@ def _init_db2_db():
 def init_db():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(FILES_DIR, exist_ok=True)
+    os.makedirs(IMAGES_DIR, exist_ok=True)
 
     if _get_db_provider() == "db2":
         _init_db2_db()
