@@ -140,6 +140,7 @@ export default function SandboxViewPage() {
   const containerId = params.id as string;
   const workflowId = searchParams.get("workflow");
   const autoAgentIntent = searchParams.get("agent");
+  const initialStartUrl = searchParams.get("startUrl") || "/";
 
   const { confirm } = useConfirm();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
@@ -177,7 +178,7 @@ export default function SandboxViewPage() {
   }
 
   // Nav bar state
-  const [iframePath, setIframePath] = useState("/");
+  const [iframePath, setIframePath] = useState(initialStartUrl);
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeSyncPath, setIframeSyncPath] = useState<string | undefined>();
 

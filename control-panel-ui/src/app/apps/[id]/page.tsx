@@ -412,7 +412,8 @@ export default function AppDetailPage() {
         method: "POST",
         body: JSON.stringify({ scenario_id: scenarioId }),
       });
-      window.location.href = `/sandbox/${result.container_id}`;
+      const startUrl = result.start_url && result.start_url !== "/" ? `?startUrl=${encodeURIComponent(result.start_url)}` : "";
+      window.location.href = `/sandbox/${result.container_id}${startUrl}`;
     } catch (e) {
       alert(e instanceof Error ? e.message : "Launch failed");
       setLaunching(null);

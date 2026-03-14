@@ -189,7 +189,10 @@ def _delete_version_resources(db, version_id: str, app_id: str):
         if s.get("db_file_path"):
             file_path = os.path.join(FILES_DIR, s["db_file_path"])
             if os.path.exists(file_path):
-                os.remove(file_path)
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
     db.execute("DELETE FROM scenarios WHERE app_version_id = ?", (version_id,))
 
     # Delete workflows for this version
@@ -528,11 +531,14 @@ async def delete_scenario(scenario_id: str):
         db.close()
         raise HTTPException(status_code=404, detail="Scenario not found")
 
-    # Delete .db file from filesystem if exists
+    # Delete db file/directory from filesystem if exists
     if row["db_file_path"]:
         file_path = os.path.join(FILES_DIR, row["db_file_path"])
         if os.path.exists(file_path):
-            os.remove(file_path)
+            if os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            else:
+                os.remove(file_path)
         # Clean up empty parent directory
         parent_dir = os.path.dirname(file_path)
         if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
@@ -628,8 +634,16 @@ async def create_sandbox(body: SandboxCreate):
 
     # Run container
     env = {}
-    if scenario.get("config_json"):
-        env["SCENARIO_CONFIG"] = json.dumps(scenario["config_json"])
+    config_json = scenario.get("config_json") or {}
+    if isinstance(config_json, str):
+        config_json = json.loads(config_json)
+    # Inject individual env vars from config_json.env
+    if isinstance(config_json.get("env"), dict):
+        for key, val in config_json["env"].items():
+            env[key] = str(val)
+    # SCENARIO_CONFIG is set after individual env vars so it takes precedence on name collision
+    if config_json:
+        env["SCENARIO_CONFIG"] = json.dumps(config_json)
 
     labels = {"sandbox-platform": "true"}
     if app_id:
@@ -659,12 +673,15 @@ async def create_sandbox(body: SandboxCreate):
     db.commit()
     db.close()
 
+    start_url = config_json.get("start_url", "/") if config_json else "/"
+
     return {
         "sandbox_url": sandbox_url,
         "container_id": container.id,
         "port": port,
         "scenario_id": body.scenario_id,
         "app_version_id": app_version_id,
+        "start_url": start_url,
     }
 
 
