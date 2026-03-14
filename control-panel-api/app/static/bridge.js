@@ -316,6 +316,112 @@
       });
     }
 
+    if (type === "capture-dom") {
+      var clone = document.body.cloneNode(true);
+
+      // Remove non-interactive elements
+      var removeSelectors = "script, style, noscript, link, meta, svg, iframe, video, audio, canvas, map, picture, source";
+      clone.querySelectorAll(removeSelectors).forEach(function (el) { el.remove(); });
+
+      // Remove hidden elements by attribute
+      clone.querySelectorAll('[aria-hidden="true"], [hidden]').forEach(function (el) { el.remove(); });
+
+      var keepAttrs = ["id", "data-testid", "aria-label", "href", "type", "name",
+        "placeholder", "value", "disabled", "role", "tabindex", "for", "alt", "title",
+        "action", "method", "src"];
+
+      var allEls = clone.querySelectorAll("*");
+      for (var ci = 0; ci < allEls.length; ci++) {
+        var cel = allEls[ci];
+
+        // Check computed visibility
+        var origEl = document.body.querySelectorAll(cel.tagName.toLowerCase())[ci];
+        if (origEl) {
+          try {
+            var computed = window.getComputedStyle(origEl);
+            if (computed.display === "none" || computed.visibility === "hidden") {
+              cel.remove();
+              continue;
+            }
+          } catch (e) { /* ignore */ }
+        }
+
+        // Strip all attributes except useful ones
+        var attrs = Array.from(cel.attributes);
+        for (var cj = 0; cj < attrs.length; cj++) {
+          var attrName = attrs[cj].name;
+          if (keepAttrs.indexOf(attrName) === -1 && attrName !== "data-testid") {
+            cel.removeAttribute(attrName);
+          }
+        }
+
+        // Truncate src to avoid long data URIs
+        if (cel.hasAttribute("src")) {
+          var srcVal = cel.getAttribute("src");
+          if (srcVal && srcVal.length > 100) {
+            cel.setAttribute("src", srcVal.substring(0, 100) + "...");
+          }
+        }
+      }
+
+      // Truncate long text nodes
+      var walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null, false);
+      var textNode;
+      while ((textNode = walker.nextNode())) {
+        var trimmed = textNode.textContent.replace(/\s+/g, " ").trim();
+        if (trimmed.length > 200) {
+          textNode.textContent = trimmed.substring(0, 200) + "...";
+        } else if (trimmed.length === 0) {
+          textNode.textContent = "";
+        } else {
+          textNode.textContent = trimmed;
+        }
+      }
+
+      // Remove empty elements (no text, no children with text)
+      var emptyEls = clone.querySelectorAll("*");
+      for (var ek = emptyEls.length - 1; ek >= 0; ek--) {
+        var eel = emptyEls[ek];
+        if (!eel.textContent.trim() && !eel.querySelector("input, textarea, select, button, a, img") && !eel.hasAttribute("data-testid")) {
+          eel.remove();
+        }
+      }
+
+      var html = clone.innerHTML;
+      window.parent.postMessage({
+        type: "dom-captured",
+        html: html,
+        url: window.location.pathname,
+        title: document.title
+      }, "*");
+    }
+
+    if (type === "wait-for-stable") {
+      var stableTimer = null;
+      var stableTimeout = null;
+      var observer = new MutationObserver(function () {
+        if (stableTimer) clearTimeout(stableTimer);
+        stableTimer = setTimeout(function () {
+          observer.disconnect();
+          if (stableTimeout) clearTimeout(stableTimeout);
+          window.parent.postMessage({ type: "dom-stable" }, "*");
+        }, 500);
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+      // Start initial timer in case DOM is already stable
+      stableTimer = setTimeout(function () {
+        observer.disconnect();
+        if (stableTimeout) clearTimeout(stableTimeout);
+        window.parent.postMessage({ type: "dom-stable" }, "*");
+      }, 500);
+      // Max timeout
+      stableTimeout = setTimeout(function () {
+        observer.disconnect();
+        if (stableTimer) clearTimeout(stableTimer);
+        window.parent.postMessage({ type: "dom-stable" }, "*");
+      }, 5000);
+    }
+
     if (type === "navigate") {
       var url = data.url;
       // If already at the right path, just confirm immediately

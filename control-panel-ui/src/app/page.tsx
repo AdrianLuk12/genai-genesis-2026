@@ -3,18 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
 import { useEditName } from "@/components/ui/edit-name-modal";
-import { Pencil } from "lucide-react";
+import {
+  Monitor,
+  Play,
+  Trash2,
+  Save,
+  ExternalLink,
+  Pencil,
+  Plus,
+} from "lucide-react";
 
 interface Sandbox {
   id: string;
@@ -33,19 +34,6 @@ interface Scenario {
   description: string;
   config_json: Record<string, unknown>;
   created_at: string;
-}
-
-function SkeletonCard({ delay = 0 }: { delay?: number }) {
-  return (
-    <div
-      className="border border-border/50 p-5 space-y-3 animate-fade-in-scale"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <div className="h-5 w-2/3 skeleton-block" />
-      <div className="h-3 w-1/2 skeleton-block" />
-      <div className="h-8 w-full skeleton-block mt-4" />
-    </div>
-  );
 }
 
 export default function DashboardPage() {
@@ -127,147 +115,166 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-8">
-        <div className="h-8 w-48 skeleton-block animate-fade-in-up" />
-        <div>
-          <div className="h-5 w-36 skeleton-block mb-4" />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[0, 1, 2].map((i) => (
-              <SkeletonCard key={i} delay={i * 80} />
-            ))}
-          </div>
-        </div>
+      <div className="space-y-6 animate-fade-in">
+        <div className="h-8 w-48 skeleton-block" />
+        <div className="h-64 skeleton-block" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-10">
-      {/* Page title */}
-      <h1 className="font-display font-bold text-3xl tracking-tight animate-slide-in-left">
-        Dashboard
-      </h1>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between animate-fade-in-up">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <Link href="/scenarios">
+          <Button variant="onyx" size="sm">
+            <Plus className="size-4" />
+            New Sandbox
+          </Button>
+        </Link>
+      </div>
 
-      {/* Active Sandboxes */}
-      <section className="animate-fade-in-up" style={{ animationDelay: "80ms" }}>
-        <h2 className="text-xs uppercase tracking-[0.15em] text-muted-foreground font-medium mb-4">
-          Active Sandboxes
-        </h2>
+      {/* Active Sandboxes Table */}
+      <div className="animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            Active Sandboxes
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            {sandboxes.length} {sandboxes.length === 1 ? "session" : "sessions"}
+          </span>
+        </div>
 
-        {sandboxes.length === 0 ? (
-          <div className="border border-dashed border-border py-12 flex flex-col items-center gap-3 animate-fade-in">
-            <p className="text-sm text-muted-foreground">
-              No active sandboxes
-            </p>
-            <Link href="/scenarios">
-              <Button variant="outline" size="sm">
-                Browse Scenarios
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sandboxes.map((sb, i) => (
-              <Card
-                key={sb.container_id}
-                className="animate-fade-in-scale border-border group transition-shadow duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{ animationDelay: `${i * 60}ms` }}
-              >
-                <CardHeader className="pb-2">
-                  <CardTitle className="font-display text-lg font-semibold flex items-center gap-2">
-                    <span className="size-2 bg-green-500/70 inline-block" />
-                    <button
-                      type="button"
-                      className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors duration-200 text-left"
-                      onClick={() => renameSandbox(sb.container_id, sb.name || "")}
-                    >
-                      {sb.name || `Sandbox :${sb.port}`}
-                      <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity duration-200" />
-                    </button>
-                  </CardTitle>
-                  <CardDescription className="text-xs font-mono text-muted-foreground">
-                    :{sb.port} / {sb.container_id.substring(0, 12)}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="mt-auto">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-                      {sb.status}
-                    </Badge>
-                    <a
-                      href={sb.sandbox_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors duration-200 truncate"
-                    >
-                      {sb.sandbox_url}
-                    </a>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => saveSandbox(sb.container_id)}>
-                      Save State
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => destroySandbox(sb.container_id)}
-                    >
-                      Destroy
-                    </Button>
-                    <Link href={`/sandbox/${sb.container_id}`}>
-                      <Button size="sm" variant="outline">
-                        View
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
+        <div className="bg-card border border-border overflow-hidden">
+          {sandboxes.length === 0 ? (
+            <div className="py-16 flex flex-col items-center gap-3">
+              <Monitor className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                No active sandboxes
+              </p>
+              <Link href="/scenarios">
+                <Button variant="outline" size="sm">
+                  Browse Scenarios
+                </Button>
+              </Link>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Name</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Port</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Container</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sandboxes.map((sb) => (
+                  <tr
+                    key={sb.container_id}
+                    className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
+                  >
+                    <td className="py-3 px-4">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
+                        onClick={() => renameSandbox(sb.container_id, sb.name || "")}
+                      >
+                        {sb.name || `Sandbox :${sb.port}`}
+                        <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                      </button>
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge variant="success">
+                        <span className="size-1.5 rounded-full bg-current mr-0.5" />
+                        {sb.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                      :{sb.port}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                      {sb.container_id.substring(0, 12)}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center justify-end gap-1">
+                        <Link href={`/sandbox/${sb.container_id}`}>
+                          <Button variant="ghost" size="icon-xs" title="View">
+                            <ExternalLink className="size-3.5" />
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => saveSandbox(sb.container_id)}
+                          title="Save State"
+                        >
+                          <Save className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => destroySandbox(sb.container_id)}
+                          title="Destroy"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       {/* Quick Launch */}
       {scenarios.length > 0 && (
-        <section className="animate-fade-in-up" style={{ animationDelay: "160ms" }}>
-          <h2 className="text-xs uppercase tracking-[0.15em] text-muted-foreground font-medium mb-4">
-            Quick Launch
-          </h2>
+        <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              Quick Launch
+            </h2>
+            <Link href="/scenarios" className="text-xs text-onyx-green hover:underline">
+              View all scenarios
+            </Link>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {scenarios.slice(0, 3).map((sc, i) => (
-              <Card
+            {scenarios.slice(0, 3).map((sc) => (
+              <div
                 key={sc.id}
-                className="animate-fade-in-scale border-border group transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:-translate-y-px h-full"
-                style={{ animationDelay: `${200 + i * 60}ms` }}
+                className="bg-card border border-border p-5 hover:border-onyx-green/30 hover:shadow-sm transition-all"
               >
-                <CardHeader className="pb-2">
-                  <CardTitle className="font-display text-lg font-semibold">
-                    {sc.name}
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    {sc.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="mt-auto">
-                  <Button
-                    className="w-full"
-                    onClick={() => launchSandbox(sc.id)}
-                    disabled={launching === sc.id}
-                  >
-                    {launching === sc.id ? (
-                      <span className="dot-loading">
-                        Launching
-                        <span>.</span><span>.</span><span>.</span>
-                      </span>
-                    ) : (
-                      "Launch Sandbox"
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
+                <h3 className="font-semibold text-sm truncate">{sc.name}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">
+                  {sc.description || "No description"}
+                </p>
+                <Button
+                  variant="onyx"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => launchSandbox(sc.id)}
+                  disabled={launching === sc.id}
+                >
+                  {launching === sc.id ? (
+                    <span className="dot-loading">
+                      Launching<span>.</span><span>.</span><span>.</span>
+                    </span>
+                  ) : (
+                    <>
+                      <Play className="size-3.5" />
+                      Launch
+                    </>
+                  )}
+                </Button>
+              </div>
             ))}
           </div>
-        </section>
+        </div>
       )}
     </div>
   );

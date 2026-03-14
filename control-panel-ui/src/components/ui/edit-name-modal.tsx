@@ -104,7 +104,7 @@ export function EditProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => {
       resolveRef.current?.(result);
       setState({ mode: "closed" });
-    }, 180);
+    }, 150);
   }, []);
 
   return (
@@ -162,7 +162,6 @@ function EditModal({
       if (e.key === "Escape") onCancel();
     }
     document.addEventListener("keydown", onKey);
-    // Focus and select input text
     setTimeout(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -179,37 +178,33 @@ function EditModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-foreground/25 backdrop-blur-[6px] transition-opacity duration-200"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-150"
         style={{ opacity: closing ? 0 : 1 }}
         onClick={onCancel}
       />
 
       {/* Modal */}
       <div
-        className="relative w-full max-w-sm mx-4 bg-card border border-border shadow-[0_8px_40px_rgba(0,0,0,0.1)]"
+        className="relative w-full max-w-md mx-4 bg-card rounded-none border border-border shadow-xl"
         style={{
           animation: closing
             ? "none"
-            : "fade-in-scale 0.2s cubic-bezier(0.16, 1, 0.3, 1) both",
+            : "fade-in-scale 0.15s cubic-bezier(0.16, 1, 0.3, 1) both",
           opacity: closing ? 0 : 1,
-          transform: closing ? "scale(0.97) translateY(4px)" : undefined,
+          transform: closing ? "scale(0.97)" : undefined,
           transition: closing
-            ? "opacity 0.18s ease-out, transform 0.18s ease-out"
+            ? "opacity 0.15s ease-out, transform 0.15s ease-out"
             : undefined,
         }}
       >
-        {/* Decorative top line */}
-        <div className="h-px w-full bg-warm-tan" />
-
         <form onSubmit={handleSubmit} className="p-6">
-          {/* Title */}
-          <h3 className="font-display font-bold text-base uppercase tracking-[0.12em] mb-4">
+          <h3 className="text-base font-semibold mb-4">
             {title}
           </h3>
 
           {/* Name field */}
           <div className="space-y-1.5">
-            <label className="block text-xs uppercase tracking-wider text-muted-foreground font-medium">
+            <label className="block text-xs font-medium text-muted-foreground">
               Name
             </label>
             <Input
@@ -217,21 +212,19 @@ function EditModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter name"
-              className="transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(201,181,156,0.15)]"
             />
           </div>
 
           {/* Description field (scenario mode) */}
           {showDescription && (
             <div className="space-y-1.5 mt-4">
-              <label className="block text-xs uppercase tracking-wider text-muted-foreground font-medium">
+              <label className="block text-xs font-medium text-muted-foreground">
                 Description
               </label>
               <Input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional description"
-                className="transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(201,181,156,0.15)]"
               />
             </div>
           )}
