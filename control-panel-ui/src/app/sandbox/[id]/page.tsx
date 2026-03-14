@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditName } from "@/components/ui/edit-name-modal";
 import {
   Pencil,
   Play,
@@ -45,7 +44,7 @@ interface CapturedStep {
   elementTag: string;
   elementText: string;
   pageTitle: string;
-  action?: "click" | "input";
+  action?: "click" | "input" | "navigate";
   inputValue?: string;
   inputType?: string;
 }
@@ -140,16 +139,42 @@ export default function SandboxViewPage() {
   const searchParams = useSearchParams();
   const containerId = params.id as string;
   const workflowId = searchParams.get("workflow");
+  const autoAgentIntent = searchParams.get("agent");
 
   const { confirm } = useConfirm();
-  const editName = useEditName();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [sandboxReady, setSandboxReady] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [pollKey, setPollKey] = useState(0);
+
+  // Inline prompt (replaces browser prompt())
+  const [inlinePrompt, setInlinePrompt] = useState<{ label: string; value: string } | null>(null);
+  const inlinePromptResolveRef = useRef<((v: string | null) => void) | null>(null);
+
+  function showInlinePrompt(label: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      inlinePromptResolveRef.current = resolve;
+      setInlinePrompt({ label, value: defaultValue });
+    });
+  }
+
+  function submitInlinePrompt() {
+    inlinePromptResolveRef.current?.(inlinePrompt?.value ?? null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
+
+  function cancelInlinePrompt() {
+    inlinePromptResolveRef.current?.(null);
+    inlinePromptResolveRef.current = null;
+    setInlinePrompt(null);
+  }
 
   // Nav bar state
   const [iframePath, setIframePath] = useState("/");
@@ -178,6 +203,7 @@ export default function SandboxViewPage() {
   const [agentStepCount, setAgentStepCount] = useState(0);
   const agentAbortRef = useRef(false);
   const agentActionsRef = useRef<AgentAction[]>([]);
+  const autoAgentFiredRef = useRef(false);
 
   // Click indicator overlay
   const [clickIndicator, setClickIndicator] = useState<ClickIndicator | null>(null);
@@ -333,21 +359,39 @@ export default function SandboxViewPage() {
     return () => clearTimeout(timer);
   }, [sandboxReady, sandbox, addLog]);
 
+  // Auto-run agent when sandbox is ready and ?agent= query param is present
+  useEffect(() => {
+    if (!sandboxReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
+    autoAgentFiredRef.current = true;
+    setAgentIntent(autoAgentIntent);
+    // Small delay to ensure iframe bridge is initialized
+    const timer = setTimeout(() => {
+      runAgentLoop(autoAgentIntent);
+    }, 2000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sandboxReady, autoAgentIntent, sandbox]);
+
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
-  async function renameSandbox() {
+  function startRename() {
     if (!sandbox) return;
-    const newName = await editName({
-      title: "Rename Sandbox",
-      currentName: sandbox.name || "",
-    });
-    if (newName === null) return;
+    setNameDraft(sandbox.name || `Sandbox :${sandbox.port}`);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    if (!sandbox) return;
+    setEditingName(false);
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === sandbox.name) return;
     const prev = { ...sandbox };
-    setSandbox((s) => (s ? { ...s, name: newName || null } : s));
+    setSandbox((s) => (s ? { ...s, name: trimmed } : s));
     try {
       await api(`/api/sandboxes/${containerId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: trimmed }),
       });
     } catch {
       setSandbox(prev);
@@ -356,7 +400,7 @@ export default function SandboxViewPage() {
 
   async function saveState() {
     const defaultName = "Scenario - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save State", currentName: defaultName });
+    const name = await showInlinePrompt("Save State", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -381,7 +425,7 @@ export default function SandboxViewPage() {
       return;
     }
     const defaultName = "Workflow - " + new Date().toISOString().slice(0, 16).replace("T", " ");
-    const name = await editName({ title: "Save Workflow", currentName: defaultName });
+    const name = await showInlinePrompt("Save Workflow", defaultName);
     if (name === null) return;
     setActionLoading(true);
     try {
@@ -438,38 +482,22 @@ export default function SandboxViewPage() {
       const step = walkthroughSteps[i];
       const action = step.action || "click";
 
-      const prevUrl = i > 0 ? walkthroughSteps[i - 1].url : null;
-      if (prevUrl !== step.url) {
-        addLog("info", `Navigating to ${step.url}`);
+      if (replayAbortRef.current) break;
+
+      if (action === "navigate") {
+        addLog("replay", `Step ${i + 1}: navigating to ${step.url}`);
         iframeRef.current!.contentWindow?.postMessage(
           { type: "navigate", url: step.url },
           targetOrigin
         );
-        // Wait for either navigate-done (SPA nav) or bridge-ready (full page reload)
         const msg = await waitForAnyMessage(["navigate-done", "bridge-ready"], 8000);
         if (msg) {
-          // Give the new page a moment to settle (DOM render)
           await sleep(msg.type === "bridge-ready" ? 1000 : 500);
         } else if (!replayAbortRef.current) {
-          // Timeout — wait longer as last resort
           await sleep(2000);
         }
-      }
-
-      if (replayAbortRef.current) break;
-
-      // Skip navigation-only clicks: if this click step is followed by a step on
-      // a different URL, the click only served to navigate — replay handles that
-      // via the explicit navigate above. Covers <a> tags, form submits, etc.
-      if (action === "click") {
-        const nextStep = i + 1 < walkthroughSteps.length ? walkthroughSteps[i + 1] : null;
-        if (nextStep && nextStep.url !== step.url) {
-          addLog("replay", `Step ${i + 1}: skipping navigation click (next step navigates to ${nextStep.url})`);
-          continue;
-        }
-      }
-
-      if (action === "input") {
+        addLog("replay", `Step ${i + 1} completed`);
+      } else if (action === "input") {
         addLog("replay", `Step ${i + 1}: typing "${(step.inputValue || "").slice(0, 30)}" into ${step.selector}`);
         let inputDone = false;
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -510,6 +538,11 @@ export default function SandboxViewPage() {
           if (userAction === "stop") { replayAbortRef.current = true; break; }
           flushSync(() => setReplayError(null));
           continue;
+        }
+        // After a click, check if it caused navigation (full reload or SPA nav)
+        const navMsg = await waitForAnyMessage(["url-changed", "bridge-ready"], 2000);
+        if (navMsg) {
+          await sleep(navMsg.type === "bridge-ready" ? 1000 : 500);
         }
       }
 
@@ -578,8 +611,9 @@ export default function SandboxViewPage() {
   function stopReplayOnError() { replayDecisionResolverRef.current?.("stop"); replayDecisionResolverRef.current = null; }
 
   // AI Agent logic
-  async function runAgentLoop() {
-    if (!iframeRef.current || !sandbox || !agentIntent.trim()) return;
+  async function runAgentLoop(intentOverride?: string) {
+    const intent = intentOverride || agentIntent;
+    if (!iframeRef.current || !sandbox || !intent.trim()) return;
 
     setAgentRunning(true);
     setAgentPhase("Starting...");
@@ -587,7 +621,7 @@ export default function SandboxViewPage() {
     setAgentStepCount(0);
     agentAbortRef.current = false;
     agentActionsRef.current = [];
-    addLog("agent", `Agent started: "${agentIntent}"`);
+    addLog("agent", `Agent started: "${intent}"`);
 
     const targetOrigin = new URL(sandbox.sandbox_url).origin;
     const MAX_STEPS = 30;
@@ -616,7 +650,7 @@ export default function SandboxViewPage() {
         response = await api("/api/agent/next-action", {
           method: "POST",
           body: JSON.stringify({
-            intent: agentIntent,
+            intent,
             current_dom: domResult.html as string,
             current_url: domResult.url as string,
             current_title: domResult.title as string,
@@ -739,16 +773,32 @@ export default function SandboxViewPage() {
             <ArrowLeft className="size-3.5" />
           </Button>
         </Link>
-        <button
-          type="button"
-          className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
-          onClick={renameSandbox}
-        >
-          <span className="text-sm font-semibold">
-            {sandbox.name || `Sandbox :${sandbox.port}`}
-          </span>
-          <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-        </button>
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") setEditingName(false);
+            }}
+            size={Math.max(nameDraft.length, 1)}
+            className="text-sm font-semibold bg-transparent border-b border-onyx-green outline-none shrink-0"
+            autoFocus
+          />
+        ) : (
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
+            onClick={startRename}
+          >
+            <span className="text-sm font-semibold">
+              {sandbox.name || `Sandbox :${sandbox.port}`}
+            </span>
+            <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+          </button>
+        )}
         <Badge variant="success" className="shrink-0">
           <span className="size-1.5 rounded-full bg-current mr-0.5" />
           {sandbox.status}
@@ -764,8 +814,42 @@ export default function SandboxViewPage() {
             onNavigate={(fullUrl) => {
               const url = new URL(fullUrl);
               setIframePath(url.pathname);
+              if (!replayingRef.current) {
+                const step: CapturedStep = {
+                  index: capturedStepsRef.current.length,
+                  timestamp: Date.now(),
+                  url: url.pathname,
+                  selector: "",
+                  fallbackSelectors: [],
+                  elementTag: "",
+                  elementText: "",
+                  pageTitle: "",
+                  action: "navigate",
+                };
+                capturedStepsRef.current = [...capturedStepsRef.current, step];
+                setCapturedSteps(capturedStepsRef.current);
+                addLog("capture", `Navigate: ${url.pathname}`);
+              }
             }}
-            onRefresh={() => setIframeKey((k) => k + 1)}
+            onRefresh={() => {
+              setIframeKey((k) => k + 1);
+              if (!replayingRef.current) {
+                const step: CapturedStep = {
+                  index: capturedStepsRef.current.length,
+                  timestamp: Date.now(),
+                  url: iframePath,
+                  selector: "",
+                  fallbackSelectors: [],
+                  elementTag: "",
+                  elementText: "",
+                  pageTitle: "",
+                  action: "navigate",
+                };
+                capturedStepsRef.current = [...capturedStepsRef.current, step];
+                setCapturedSteps(capturedStepsRef.current);
+                addLog("capture", `Navigate (refresh): ${iframePath}`);
+              }
+            }}
             capturedStepsCount={capturedSteps.length}
             syncPath={iframeSyncPath}
           />
@@ -825,6 +909,28 @@ export default function SandboxViewPage() {
           </Button>
         </div>
       </div>
+
+      {/* Inline prompt */}
+      {inlinePrompt && (
+        <div className="bg-card border-b border-border px-4 py-2.5 shrink-0 animate-fade-in-scale">
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitInlinePrompt(); }}
+            className="flex gap-2 items-center"
+          >
+            <span className="text-xs font-medium text-muted-foreground shrink-0">{inlinePrompt.label}</span>
+            <input
+              type="text"
+              value={inlinePrompt.value}
+              onChange={(e) => setInlinePrompt({ ...inlinePrompt, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Escape") cancelInlinePrompt(); }}
+              className="flex-1 h-8 px-3 text-sm bg-background border border-input outline-none focus:border-ring"
+              autoFocus
+            />
+            <Button type="submit" variant="onyx" size="xs">Save</Button>
+            <Button type="button" variant="ghost" size="xs" onClick={cancelInlinePrompt}>Cancel</Button>
+          </form>
+        </div>
+      )}
 
       {/* Agent input */}
       {agentShowInput && !agentRunning && (
