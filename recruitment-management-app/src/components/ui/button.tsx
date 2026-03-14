@@ -11,7 +11,7 @@ const Button: React.FC<ButtonProps> = ({ onClick, children, className = '', disa
     return (
         <button
             onClick={onClick}
-            className={`py-2 px-4 rounded bg-blue-500 text-white hover:bg-blue-600 ${className}`}
+            className={`button-secondary ${className}`}
             disabled={disabled}
         >
             {children}

@@ -8,10 +8,10 @@ interface MetricsCardProps {
 
 const MetricsCard: React.FC<MetricsCardProps> = ({ title, value, description }) => {
     return (
-        <div className="bg-white shadow-md rounded-lg p-4">
-            <h3 className="text-lg font-semibold">{title}</h3>
-            <p className="text-2xl font-bold">{value}</p>
-            <p className="text-gray-600">{description}</p>
+        <div className="panel">
+            <h3 className="panel-title">{title}</h3>
+            <p className="metric-value">{value}</p>
+            <p className="muted">{description}</p>
         </div>
     );
 };

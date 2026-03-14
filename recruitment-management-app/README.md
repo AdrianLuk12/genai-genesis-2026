@@ -13,6 +13,22 @@ This app is designed to be managed by the Sandbox Platform (control panel), simi
 - User-facing careers portal
 - Protected admin operations console
 
+## Architecture
+
+The app is organized by intent using Next.js route groups:
+
+- `src/app/(public)` for role entry and sign-in routes
+- `src/app/(workspace)` for recruiter and candidate workspace screens
+- `src/app/api` for route handlers
+
+Shared UI and behavior live in:
+
+- `src/components/layout` for app shell and navigation framing
+- `src/components/auth` for reusable login form behavior
+- `src/lib` for auth utilities and data-store logic
+
+Styling uses a custom design system in `src/app/globals.css` (no Tailwind CSS).
+
 ## Local development
 
 1. Install dependencies:
@@ -40,6 +56,12 @@ This app is designed to be managed by the Sandbox Platform (control panel), simi
 
 Admin and user routes are protected by proxy route guards and require their respective auth cookies.
 
+Recruiter operation routes are also protected:
+
+- `/jobs`
+- `/candidates`
+- `/interviews`
+
 Configure credentials in `.env` (copy from `.env.example`) using:
 
 - `AUTH_ADMIN_EMAIL`
@@ -47,7 +69,7 @@ Configure credentials in `.env` (copy from `.env.example`) using:
 - `AUTH_USER_EMAIL`
 - `AUTH_USER_PASSWORD`
 
-If not set, the app uses development-only defaults.
+Credentials are never displayed in the login UI.
 
 ## Data model
 

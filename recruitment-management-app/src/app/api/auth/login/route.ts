@@ -2,8 +2,14 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { isValidCredential } from "@/lib/auth";
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function POST(request: Request) {
-  const { email, password } = await request.json();
+  const body = await request.json();
+  const email = typeof body?.email === "string" ? body.email : "";
+  const password = typeof body?.password === "string" ? body.password : "";
 
   if (isValidCredential("admin", email, password)) {
     const cookieStore = await cookies();
@@ -17,6 +23,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   }
+
+  await wait(400);
 
   return NextResponse.json(
     { success: false, error: "Invalid email or password" },

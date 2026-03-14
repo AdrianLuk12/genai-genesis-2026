@@ -1,12 +1,24 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
+type Props = {
+  accent: "admin" | "user";
+  title: string;
+  subtitle: string;
+  endpoint: "/api/auth/login" | "/api/auth/user-login";
+  successRedirect: "/admin" | "/careers";
+};
+
+export function LoginForm({ accent, title, subtitle, endpoint, successRedirect }: Props) {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(
+    accent === "admin" ? "admin@recruitops.local" : "candidate@recruitops.local",
+  );
+  const [password, setPassword] = useState(
+    accent === "admin" ? "R3cruitOps!Admin#2026" : "R3cruitOps!Candidate#2026",
+  );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +27,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
@@ -28,24 +40,24 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/admin");
+    router.push(successRedirect);
     router.refresh();
   }
 
   return (
     <section className="stack auth-wrap">
-      <article className="panel auth-card">
-        <p className="eyebrow-light">Admin Access</p>
-        <h2 className="title">Recruitment Admin Sign in</h2>
-        <p className="muted">Use configured admin credentials to access protected recruitment operations pages.</p>
-        <p className="muted">Default (if env is not set): admin@recruitops.local / R3cruitOps!Admin#2026</p>
+      <article className={`panel auth-card auth-card-${accent}`}>
+        <p className="eyebrow-light">Secure Access</p>
+        <h2 className="title">{title}</h2>
+        <p className="muted">{subtitle}</p>
 
         <form className="stack" onSubmit={onSubmit}>
           <input
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email"
+            placeholder="Work email"
+            autoComplete="email"
             required
           />
           <input
@@ -53,6 +65,7 @@ export default function LoginPage() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Password"
+            autoComplete="current-password"
             required
           />
           {error ? <p className="error-text">{error}</p> : null}
