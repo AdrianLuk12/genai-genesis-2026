@@ -12,7 +12,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         onyx:
-          "rounded-[6px] bg-onyx-green text-onyx-dark font-semibold hover:bg-[#35c882] hover:shadow-[0_2px_12px_rgba(61,220,145,0.3)]",
+          "bg-onyx-green text-onyx-dark font-semibold hover:bg-[#35c882] hover:shadow-[0_2px_12px_rgba(61,220,145,0.3)]",
         outline:
           "border-border bg-card text-foreground hover:bg-muted",
         secondary:

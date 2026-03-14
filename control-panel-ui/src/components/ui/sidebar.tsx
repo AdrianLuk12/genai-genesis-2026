@@ -74,7 +74,7 @@ export function Sidebar() {
             <Beaker className="size-4 text-onyx-dark" />
           </div>
           {!collapsed && (
-            <span className="text-sm font-semibold text-white tracking-wide whitespace-nowrap">
+            <span className="text-sm font-semibold text-foreground tracking-wide whitespace-nowrap">
               MONKEY LABS
             </span>
           )}
@@ -107,8 +107,8 @@ export function Sidebar() {
                       collapsed ? "justify-center px-0" : "px-2.5"
                     } ${
                       active
-                        ? "bg-sidebar-accent text-white"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
                     }`}
                     title={collapsed ? item.label : undefined}
                   >
@@ -143,7 +143,7 @@ export function Sidebar() {
       <div className="border-t border-sidebar-border p-2 shrink-0 space-y-0.5">
         <Link
           href="/settings"
-          className={`flex items-center gap-2.5 h-8 text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white transition-colors duration-150 ${
+          className={`flex items-center gap-2.5 h-8 text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground transition-colors duration-150 ${
             collapsed ? "justify-center px-0" : "px-2.5"
           }`}
           title={collapsed ? "Settings" : undefined}
@@ -154,7 +154,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className={`flex items-center gap-2.5 h-8 w-full text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white transition-colors duration-150 ${
+          className={`flex items-center gap-2.5 h-8 w-full text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground transition-colors duration-150 ${
             collapsed ? "justify-center px-0" : "px-2.5"
           }`}
         >
