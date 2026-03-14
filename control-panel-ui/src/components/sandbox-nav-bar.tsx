@@ -97,29 +97,14 @@ export function SandboxNavBar({
   }, []);
 
   return (
-    <div className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-      {/* Status indicator */}
-      <span className="inline-flex items-center gap-1.5 shrink-0">
-        <span
-          className="size-2 bg-green-500/80 inline-block"
-          style={{
-            animation: sandboxReady
-              ? "none"
-              : "pulse-subtle 2s ease-in-out infinite",
-          }}
-        />
-        {sandboxReady ? "LIVE" : "CONNECTING"}
-      </span>
-
-      <span className="text-border">|</span>
-
+    <div className="text-xs font-mono text-muted-foreground flex items-center gap-1.5">
       {/* Navigation controls */}
-      <div className="inline-flex items-center gap-0.5 shrink-0">
+      <div className="inline-flex items-center gap-0 shrink-0">
         <button
           type="button"
           onClick={goBack}
           disabled={!canGoBack}
-          className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+          className="p-0.5 hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
           title="Back"
         >
           <ChevronLeft className="size-3.5" />
@@ -128,7 +113,7 @@ export function SandboxNavBar({
           type="button"
           onClick={goForward}
           disabled={!canGoForward}
-          className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+          className="p-0.5 hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
           title="Forward"
         >
           <ChevronRight className="size-3.5" />
@@ -136,16 +121,16 @@ export function SandboxNavBar({
         <button
           type="button"
           onClick={onRefresh}
-          className="p-0.5 rounded hover:bg-muted transition-colors duration-150"
+          className="p-0.5 hover:bg-muted transition-colors duration-150"
           title="Refresh"
         >
           <RotateCw className="size-3" />
         </button>
       </div>
 
-      {/* URL bar */}
-      <div className="flex items-center min-w-0 flex-1 bg-background/50 border border-border/50 rounded px-2 py-0.5">
-        <span className="text-muted-foreground/50 shrink-0 select-none">
+      {/* URL bar — flat, inline */}
+      <div className="flex items-center min-w-0 flex-1 bg-muted/50 px-2 py-0.5">
+        <span className="text-muted-foreground/40 shrink-0 select-none">
           {origin}
         </span>
         <input
@@ -162,13 +147,11 @@ export function SandboxNavBar({
 
       {/* Recording indicator */}
       {sandboxReady && capturedStepsCount > 0 && (
-        <>
-          <span className="text-border">|</span>
-          <span className="inline-flex items-center gap-1.5 shrink-0">
-            <span className="size-2 bg-red-500/80 inline-block animate-pulse" />
-            REC {capturedStepsCount} steps
-          </span>
-        </>
+        <span className="inline-flex items-center gap-1.5 shrink-0">
+          <span className="size-1.5 rounded-full bg-onyx-coral inline-block animate-pulse" />
+          <span className="text-onyx-coral">REC</span>
+          <span className="text-muted-foreground">{capturedStepsCount}</span>
+        </span>
       )}
     </div>
   );

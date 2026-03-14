@@ -2,19 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-modal";
 import { useEditScenario } from "@/components/ui/edit-name-modal";
-import { Pencil } from "lucide-react";
+import {
+  FlaskConical,
+  Play,
+  Trash2,
+  Pencil,
+  Plus,
+  X,
+  Search,
+  GitBranch,
+} from "lucide-react";
 
 interface Scenario {
   id: string;
@@ -23,20 +26,6 @@ interface Scenario {
   config_json: Record<string, unknown>;
   created_at: string;
   parent_scenario_id: string | null;
-}
-
-function SkeletonCard({ delay = 0 }: { delay?: number }) {
-  return (
-    <div
-      className="border border-border/50 p-5 space-y-3 animate-fade-in-scale"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <div className="h-5 w-3/4 skeleton-block" />
-      <div className="h-3 w-1/2 skeleton-block" />
-      <div className="h-16 w-full skeleton-block mt-2" />
-      <div className="h-8 w-full skeleton-block mt-2" />
-    </div>
-  );
 }
 
 function LaunchOverlay() {
@@ -49,13 +38,13 @@ function LaunchOverlay() {
   }, [msgs.length]);
 
   return (
-    <div className="absolute inset-0 z-10 bg-card/85 backdrop-blur-[3px] flex flex-col items-center justify-center gap-4 animate-fade-in">
-      <div className="w-24 h-px bg-border relative overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-foreground/50 animate-progress-fill" />
+    <div className="absolute inset-0 z-10 bg-card/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 animate-fade-in rounded-none">
+      <div className="w-24 h-1 bg-border relative overflow-hidden">
+        <div className="absolute inset-y-0 left-0 bg-onyx-green animate-progress-fill" />
       </div>
       <p
         key={msgIndex}
-        className="text-xs uppercase tracking-[0.15em] text-muted-foreground animate-fade-in"
+        className="text-xs text-muted-foreground animate-fade-in"
       >
         {msgs[msgIndex]}
         <span className="dot-loading">
@@ -76,6 +65,7 @@ export default function ScenariosPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [configJson, setConfigJson] = useState("{}");
+  const [search, setSearch] = useState("");
   const { confirm } = useConfirm();
   const editScenario = useEditScenario();
 
@@ -168,155 +158,205 @@ export default function ScenariosPage() {
     setScenarios(scenarios.filter((s) => s.id !== id));
   }
 
+  const filtered = scenarios.filter(
+    (sc) =>
+      sc.name.toLowerCase().includes(search.toLowerCase()) ||
+      sc.description.toLowerCase().includes(search.toLowerCase())
+  );
+
   if (loading) {
     return (
-      <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <div className="h-8 w-40 skeleton-block animate-fade-in-up" />
-          <div className="h-8 w-32 skeleton-block animate-fade-in-up" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[0, 1, 2].map((i) => (
-            <SkeletonCard key={i} delay={i * 80} />
-          ))}
-        </div>
+      <div className="space-y-6 animate-fade-in">
+        <div className="h-8 w-48 skeleton-block" />
+        <div className="h-12 skeleton-block" />
+        <div className="h-64 skeleton-block" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between animate-slide-in-left">
-        <h1 className="font-display font-bold text-3xl tracking-tight">
-          Scenarios
-        </h1>
-        <Button onClick={() => setShowForm(!showForm)}>
-          {showForm ? "Cancel" : "New Scenario"}
+      <div className="flex items-center justify-between animate-fade-in-up">
+        <div>
+          <h1 className="text-2xl font-semibold">Scenarios</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Configure and manage test scenarios
+          </p>
+        </div>
+        <Button
+          variant={showForm ? "outline" : "onyx"}
+          size="sm"
+          onClick={() => setShowForm(!showForm)}
+        >
+          {showForm ? (
+            <>
+              <X className="size-4" />
+              Cancel
+            </>
+          ) : (
+            <>
+              <Plus className="size-4" />
+              New Scenario
+            </>
+          )}
         </Button>
       </div>
 
       {/* Create form */}
       {showForm && (
-        <Card className="border-border animate-fade-in-scale bg-card/80 backdrop-blur-sm" style={{ animationDelay: "80ms" }}>
-          <CardHeader>
-            <CardTitle className="font-display font-semibold">Create Scenario</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={createScenario} className="space-y-4">
-              <div className="animate-fade-in-up" style={{ animationDelay: "50ms" }}>
-                <label className="block text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-                  Name
-                </label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  placeholder="e.g. Low Inventory Test"
-                  className="transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(201,181,156,0.15)]"
-                />
-              </div>
-              <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-                <label className="block text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-                  Description
-                </label>
-                <Input
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional description"
-                  className="transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(201,181,156,0.15)]"
-                />
-              </div>
-              <div className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
-                <label className="block text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-                  Config JSON
-                </label>
-                <Textarea
-                  value={configJson}
-                  onChange={(e) => setConfigJson(e.target.value)}
-                  rows={4}
-                  className="font-mono text-sm transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(201,181,156,0.15)]"
-                  placeholder='{"product_count": 10, "inventory_status": "low"}'
-                />
-              </div>
-              <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-                <Button type="submit">Create</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+        <div className="bg-card rounded-none border border-border p-6 animate-fade-in-scale">
+          <h3 className="font-semibold mb-4">Create Scenario</h3>
+          <form onSubmit={createScenario} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Name
+              </label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                placeholder="e.g. Low Inventory Test"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Description
+              </label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Config JSON
+              </label>
+              <Textarea
+                value={configJson}
+                onChange={(e) => setConfigJson(e.target.value)}
+                rows={4}
+                className="font-mono text-xs"
+                placeholder='{"product_count": 10, "inventory_status": "low"}'
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" variant="onyx">Create Scenario</Button>
+            </div>
+          </form>
+        </div>
       )}
 
-      {/* Scenario list */}
-      {scenarios.length === 0 ? (
-        <div className="border border-dashed border-border py-16 flex flex-col items-center gap-3 animate-fade-in-up" style={{ animationDelay: "120ms" }}>
-          <p className="text-sm text-muted-foreground">
-            No scenarios yet
-          </p>
-          <p className="text-xs text-muted-foreground/60">
-            Create one to get started
-          </p>
+      {/* Filter bar */}
+      <div className="flex items-center gap-3 animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search scenarios..."
+            className="pl-9"
+          />
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in-up" style={{ animationDelay: "120ms" }}>
-          {scenarios.map((sc, i) => (
-            <Card
-              key={sc.id}
-              className="relative animate-fade-in-scale border-border group transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:-translate-y-px"
-              style={{ animationDelay: `${120 + i * 60}ms` }}
-            >
-              {launching === sc.id && <LaunchOverlay />}
-              <CardHeader className="pb-2">
-                <CardTitle className="font-display text-lg font-semibold">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors duration-200 text-left"
-                    onClick={() => renameScenario(sc)}
-                  >
-                    {sc.name}
-                    <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity duration-200" />
-                  </button>
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  {sc.description || "No description"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="mt-auto">
-                <pre className="text-[11px] font-mono bg-secondary/60 border border-border/30 p-2.5 mb-3 overflow-auto max-h-20 text-muted-foreground">
-                  {JSON.stringify(sc.config_json, null, 2)}
-                </pre>
-                <p className="text-[10px] text-muted-foreground/60 mb-3 uppercase tracking-wider">
-                  {new Date(sc.created_at).toLocaleDateString()}
-                  {sc.parent_scenario_id && " / from walkthrough"}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => launchSandbox(sc.id)}
-                    disabled={launching === sc.id}
-                  >
-                    {launching === sc.id ? (
-                      <span className="dot-loading">
-                        Launching<span>.</span><span>.</span><span>.</span>
-                      </span>
-                    ) : (
-                      "Launch"
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => deleteScenario(sc.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} of {scenarios.length} scenarios
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="bg-card rounded-none border border-border overflow-hidden animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+        {filtered.length === 0 ? (
+          <div className="py-16 flex flex-col items-center gap-3">
+            <FlaskConical className="size-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">
+              {scenarios.length === 0 ? "No scenarios yet" : "No matches found"}
+            </p>
+            {scenarios.length === 0 && (
+              <p className="text-xs text-muted-foreground/60">
+                Create one to get started
+              </p>
+            )}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Name</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Description</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Config</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Created</th>
+                <th className="text-right py-2.5 px-4 text-xs font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((sc) => (
+                <tr
+                  key={sc.id}
+                  className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
+                >
+                  {launching === sc.id && (
+                    <td colSpan={5} className="absolute inset-0">
+                      <LaunchOverlay />
+                    </td>
+                  )}
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
+                        onClick={() => renameScenario(sc)}
+                      >
+                        {sc.name}
+                        <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                      </button>
+                      {sc.parent_scenario_id && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          <GitBranch className="size-2.5 mr-0.5" />
+                          walkthrough
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-muted-foreground max-w-[200px] truncate">
+                    {sc.description || "---"}
+                  </td>
+                  <td className="py-3 px-4">
+                    <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 max-w-[160px] truncate block">
+                      {JSON.stringify(sc.config_json)}
+                    </code>
+                  </td>
+                  <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(sc.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="onyx"
+                        size="xs"
+                        onClick={() => launchSandbox(sc.id)}
+                        disabled={launching === sc.id}
+                      >
+                        <Play className="size-3" />
+                        Launch
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => deleteScenario(sc.id)}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        title="Delete"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

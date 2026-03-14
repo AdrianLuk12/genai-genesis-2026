@@ -5,15 +5,22 @@ import { flushSync } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
 import { useEditName } from "@/components/ui/edit-name-modal";
-import { Pencil } from "lucide-react";
+import {
+  Pencil,
+  Play,
+  Square,
+  Save,
+  Trash2,
+  Bot,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  ArrowLeft,
+} from "lucide-react";
+import Link from "next/link";
 import { SandboxNavBar } from "@/components/sandbox-nav-bar";
 import { SandboxConsole } from "@/components/sandbox-console";
 
@@ -99,7 +106,7 @@ function SandboxLoader() {
       </div>
       <div className="relative z-10 flex flex-col items-center gap-6">
         <div className="animate-fade-in-up">
-          <h2 className="font-display font-bold text-2xl tracking-[0.2em] uppercase text-foreground/80">
+          <h2 className="font-bold text-2xl tracking-[0.2em] uppercase text-foreground/80">
             Initializing
           </h2>
         </div>
@@ -212,7 +219,7 @@ export default function SandboxViewPage() {
       .catch(() => {});
   }, [sandbox]);
 
-  // Poll for sandbox readiness (poll direct URL, not proxy)
+  // Poll for sandbox readiness
   useEffect(() => {
     if (!sandbox) return;
     setSandboxReady(false);
@@ -237,7 +244,6 @@ export default function SandboxViewPage() {
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!sandbox) return;
-      // Only accept messages from localhost origins
       if (!event.origin.startsWith("http://localhost")) return;
 
       const { type } = event.data || {};
@@ -395,20 +401,15 @@ export default function SandboxViewPage() {
     addLog("replay", `Starting replay of ${walkthroughSteps.length} steps`);
 
     const targetOrigin = new URL(sandbox.sandbox_url).origin;
-
-    // Stop capture during replay to avoid recording replay clicks
     iframeRef.current.contentWindow?.postMessage({ type: "stop-capture" }, targetOrigin);
 
     for (let i = 0; i < walkthroughSteps.length; i++) {
       if (replayAbortRef.current) break;
-
-      // Use flushSync to guarantee the step counter renders before we proceed
       flushSync(() => setReplayStep(i + 1));
 
       const step = walkthroughSteps[i];
       const action = step.action || "click";
 
-      // Navigate if URL differs from previous step
       const prevUrl = i > 0 ? walkthroughSteps[i - 1].url : null;
       if (prevUrl !== step.url) {
         addLog("info", `Navigating to ${step.url}`);
@@ -446,31 +447,18 @@ export default function SandboxViewPage() {
         for (let attempt = 0; attempt < 3; attempt++) {
           if (replayAbortRef.current) break;
           iframeRef.current!.contentWindow?.postMessage(
-            {
-              type: "replay-input",
-              selector: step.selector,
-              fallbackSelectors: step.fallbackSelectors,
-              value: step.inputValue,
-              index: step.index,
-            },
+            { type: "replay-input", selector: step.selector, fallbackSelectors: step.fallbackSelectors, value: step.inputValue, index: step.index },
             targetOrigin
           );
           const result = await waitForMessage("replay-input-done", 3000);
-          if (result?.success) {
-            inputDone = true;
-            addLog("replay", `Step ${i + 1} completed`);
-            break;
-          }
+          if (result?.success) { inputDone = true; addLog("replay", `Step ${i + 1} completed`); break; }
           await sleep(500);
         }
         if (!inputDone && !replayAbortRef.current) {
           addLog("error", `Step ${i + 1} failed: element not found ${step.selector}`);
           flushSync(() => setReplayError(`Step ${i + 1} failed: element not found ${step.selector}`));
           const userAction = await waitForReplayDecision();
-          if (userAction === "stop") {
-            replayAbortRef.current = true;
-            break;
-          }
+          if (userAction === "stop") { replayAbortRef.current = true; break; }
           flushSync(() => setReplayError(null));
           continue;
         }
@@ -480,30 +468,18 @@ export default function SandboxViewPage() {
         for (let attempt = 0; attempt < 3; attempt++) {
           if (replayAbortRef.current) break;
           iframeRef.current!.contentWindow?.postMessage(
-            {
-              type: "replay-click",
-              selector: step.selector,
-              fallbackSelectors: step.fallbackSelectors,
-              index: step.index,
-            },
+            { type: "replay-click", selector: step.selector, fallbackSelectors: step.fallbackSelectors, index: step.index },
             targetOrigin
           );
           const result = await waitForMessage("replay-click-done", 3000);
-          if (result?.success) {
-            clicked = true;
-            addLog("replay", `Step ${i + 1} completed`);
-            break;
-          }
+          if (result?.success) { clicked = true; addLog("replay", `Step ${i + 1} completed`); break; }
           await sleep(500);
         }
         if (!clicked && !replayAbortRef.current) {
           addLog("error", `Step ${i + 1} failed: element not found ${step.selector}`);
           flushSync(() => setReplayError(`Step ${i + 1} failed: element not found ${step.selector}`));
           const userAction = await waitForReplayDecision();
-          if (userAction === "stop") {
-            replayAbortRef.current = true;
-            break;
-          }
+          if (userAction === "stop") { replayAbortRef.current = true; break; }
           flushSync(() => setReplayError(null));
           continue;
         }
@@ -519,8 +495,8 @@ export default function SandboxViewPage() {
       setIframeSyncPath(lastStep.url);
     }
 
-    iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
 
+    iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
     addLog("replay", replayAbortRef.current ? "Replay stopped" : "Replay complete");
     setReplaying(false);
     replayingRef.current = false;
@@ -539,20 +515,11 @@ export default function SandboxViewPage() {
 
   function waitForMessage(type: string, timeout: number): Promise<Record<string, unknown> | null> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        window.removeEventListener("message", handler);
-        resolve(null);
-      }, timeout);
-
+      const timer = setTimeout(() => { window.removeEventListener("message", handler); resolve(null); }, timeout);
       function handler(event: MessageEvent) {
         if (!event.origin.startsWith("http://localhost")) return;
-        if (event.data?.type === type) {
-          clearTimeout(timer);
-          window.removeEventListener("message", handler);
-          resolve(event.data);
-        }
+        if (event.data?.type === type) { clearTimeout(timer); window.removeEventListener("message", handler); resolve(event.data); }
       }
-
       window.addEventListener("message", handler);
     });
   }
@@ -578,22 +545,9 @@ export default function SandboxViewPage() {
   }
 
   const replayDecisionResolverRef = useRef<((v: "skip" | "stop") => void) | null>(null);
-
-  function waitForReplayDecision(): Promise<"skip" | "stop"> {
-    return new Promise((resolve) => {
-      replayDecisionResolverRef.current = resolve;
-    });
-  }
-
-  function skipReplayStep() {
-    replayDecisionResolverRef.current?.("skip");
-    replayDecisionResolverRef.current = null;
-  }
-
-  function stopReplayOnError() {
-    replayDecisionResolverRef.current?.("stop");
-    replayDecisionResolverRef.current = null;
-  }
+  function waitForReplayDecision(): Promise<"skip" | "stop"> { return new Promise((resolve) => { replayDecisionResolverRef.current = resolve; }); }
+  function skipReplayStep() { replayDecisionResolverRef.current?.("skip"); replayDecisionResolverRef.current = null; }
+  function stopReplayOnError() { replayDecisionResolverRef.current?.("stop"); replayDecisionResolverRef.current = null; }
 
   // AI Agent logic
   async function runAgentLoop() {
@@ -609,8 +563,6 @@ export default function SandboxViewPage() {
 
     const targetOrigin = new URL(sandbox.sandbox_url).origin;
     const MAX_STEPS = 30;
-
-    // Stop capture during agent run
     iframeRef.current.contentWindow?.postMessage({ type: "stop-capture" }, targetOrigin);
 
     let errorContext: string | null = null;
@@ -619,24 +571,17 @@ export default function SandboxViewPage() {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (agentAbortRef.current) break;
-
       flushSync(() => setAgentStepCount(step + 1));
 
-      // Wait for DOM stability
       iframeRef.current!.contentWindow?.postMessage({ type: "wait-for-stable" }, targetOrigin);
       await waitForMessage("dom-stable", 6000);
       if (agentAbortRef.current) break;
 
-      // Capture DOM
       iframeRef.current!.contentWindow?.postMessage({ type: "capture-dom" }, targetOrigin);
       const domResult = await waitForMessage("dom-captured", 5000);
-      if (!domResult || agentAbortRef.current) {
-        addLog("error", "Failed to capture DOM");
-        break;
-      }
+      if (!domResult || agentAbortRef.current) { addLog("error", "Failed to capture DOM"); break; }
       lastUrl = domResult.url as string || lastUrl;
 
-      // Call AI endpoint
       addLog("agent", `Step ${step + 1}: Thinking...`);
       let response;
       try {
@@ -659,60 +604,37 @@ export default function SandboxViewPage() {
       if (agentAbortRef.current) break;
 
       const action = response.action as AgentAction;
-      flushSync(() => {
-        setAgentPhase(response.phase as string);
-        setAgentProgress(response.progress as number);
-      });
+      flushSync(() => { setAgentPhase(response.phase as string); setAgentProgress(response.progress as number); });
       addLog("agent", `Step ${step + 1}: [${action.type}] ${action.description}`);
 
-      // Done?
-      if (action.type === "done") {
-        addLog("agent", "Goal accomplished!");
-        break;
-      }
+      if (action.type === "done") { addLog("agent", "Goal accomplished!"); break; }
 
-      // Execute action
       errorContext = null;
 
       if (action.type === "click" && action.selector) {
-        iframeRef.current!.contentWindow?.postMessage(
-          { type: "replay-click", selector: action.selector, fallbackSelectors: [], index: step },
-          targetOrigin
-        );
+        iframeRef.current!.contentWindow?.postMessage({ type: "replay-click", selector: action.selector, fallbackSelectors: [], index: step }, targetOrigin);
         const result = await waitForMessage("replay-click-done", 5000);
         if (!result?.success) {
           errorContext = `Click failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) {
-            addLog("error", "Too many consecutive failures, stopping agent");
-            break;
-          }
+          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
           continue;
         }
         consecutiveFailures = 0;
       } else if (action.type === "type" && action.selector && action.value) {
-        iframeRef.current!.contentWindow?.postMessage(
-          { type: "replay-input", selector: action.selector, fallbackSelectors: [], value: action.value, index: step },
-          targetOrigin
-        );
+        iframeRef.current!.contentWindow?.postMessage({ type: "replay-input", selector: action.selector, fallbackSelectors: [], value: action.value, index: step }, targetOrigin);
         const result = await waitForMessage("replay-input-done", 5000);
         if (!result?.success) {
           errorContext = `Type failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) {
-            addLog("error", "Too many consecutive failures, stopping agent");
-            break;
-          }
+          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
           continue;
         }
         consecutiveFailures = 0;
       } else if (action.type === "navigate" && action.url) {
-        iframeRef.current!.contentWindow?.postMessage(
-          { type: "navigate", url: action.url },
-          targetOrigin
-        );
+        iframeRef.current!.contentWindow?.postMessage({ type: "navigate", url: action.url }, targetOrigin);
         await waitForMessage("navigate-done", 5000);
         await sleep(1000);
         consecutiveFailures = 0;
@@ -724,37 +646,26 @@ export default function SandboxViewPage() {
         consecutiveFailures = 0;
       }
 
-      // Push successful action to history
       agentActionsRef.current = [...agentActionsRef.current, action];
       await sleep(500);
     }
 
-    // Convert agent actions to captured steps for saving
     const agentSteps: CapturedStep[] = agentActionsRef.current
       .filter((a) => a.type === "click" || a.type === "type" || a.type === "navigate")
       .map((action, index) => ({
-        index,
-        timestamp: Date.now(),
-        url: action.url || lastUrl,
-        selector: action.selector || "",
-        fallbackSelectors: [],
-        elementTag: "",
-        elementText: action.description,
-        pageTitle: "",
+        index, timestamp: Date.now(), url: action.url || lastUrl,
+        selector: action.selector || "", fallbackSelectors: [], elementTag: "",
+        elementText: action.description, pageTitle: "",
         action: action.type === "type" ? "input" as const : "click" as const,
-        inputValue: action.value,
-        inputType: "text",
+        inputValue: action.value, inputType: "text",
       }));
 
-    // Add agent-generated steps to captured steps
     if (agentSteps.length > 0) {
       capturedStepsRef.current = [...capturedStepsRef.current, ...agentSteps];
       setCapturedSteps(capturedStepsRef.current);
     }
 
-    // Restart capture
     iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
-
     addLog("agent", agentAbortRef.current ? "Agent stopped" : `Agent finished (${agentActionsRef.current.length} actions)`);
     setAgentRunning(false);
     setAgentPhase("");
@@ -772,19 +683,17 @@ export default function SandboxViewPage() {
 
   if (loading) {
     return (
-      <div className="animate-fade-in-up space-y-4">
+      <div className="animate-fade-in space-y-4">
         <div className="h-8 w-56 skeleton-block" />
-        <div className="skeleton-block" style={{ height: "calc(100vh - 260px)" }} />
+        <div className="skeleton-block" style={{ height: "calc(100vh - 200px)" }} />
       </div>
     );
   }
 
   if (!sandbox) {
     return (
-      <div className="animate-fade-in-up flex flex-col items-center justify-center py-24 gap-4">
-        <p className="font-display text-lg text-muted-foreground uppercase tracking-widest">
-          Sandbox not found
-        </p>
+      <div className="animate-fade-in flex flex-col items-center justify-center py-24 gap-4">
+        <p className="text-base text-muted-foreground">Sandbox not found</p>
         <Button variant="outline" onClick={() => router.push("/")}>
           Back to Dashboard
         </Button>
@@ -793,167 +702,34 @@ export default function SandboxViewPage() {
   }
 
   return (
-    <div className="animate-fade-in-up space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between animate-slide-in-left">
-        <div className="group">
-          <button
-            type="button"
-            className="flex items-center gap-2 hover:text-foreground/70 transition-colors duration-200"
-            onClick={renameSandbox}
-          >
-            <h1 className="font-display font-bold text-2xl tracking-tight">
-              {sandbox.name || `Sandbox :${sandbox.port}`}
-            </h1>
-            <Pencil className="size-3.5 opacity-0 group-hover:opacity-50 transition-opacity duration-200 mt-1" />
-          </button>
-          <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-            :{sandbox.port} / {sandbox.container_id.substring(0, 12)}
-          </p>
-        </div>
-        <div className="flex gap-2 items-center">
-          {!agentRunning && !replaying && (
-            <Button
-              variant="outline"
-              onClick={() => setAgentShowInput(!agentShowInput)}
-              disabled={actionLoading}
-              className="border-purple-500/30 text-purple-600 hover:bg-purple-500/5"
-            >
-              AI Agent
-            </Button>
-          )}
-          {agentRunning && (
-            <Button variant="outline" onClick={stopAgent} className="border-purple-500/30 text-purple-600">
-              Stop Agent
-            </Button>
-          )}
-          {walkthroughSteps && !replaying && !agentRunning && (
-            <Button variant="outline" onClick={startReplay} disabled={actionLoading}>
-              Replay
-            </Button>
-          )}
-          {replaying && (
-            <Button variant="outline" onClick={stopReplay}>
-              Stop Replay
-            </Button>
-          )}
-          <Button variant="outline" onClick={saveState} disabled={actionLoading || replaying || agentRunning}>
-            Save Walkthrough State
+    <div className="animate-fade-in flex flex-col fixed inset-0 z-50 bg-background">
+      {/* Header toolbar — merged with URL bar */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card shrink-0">
+        {/* Left: back + name */}
+        <Link href="/" className="shrink-0">
+          <Button variant="ghost" size="icon-xs">
+            <ArrowLeft className="size-3.5" />
           </Button>
-          <Button
-            variant="destructive"
-            onClick={destroySandbox}
-            disabled={actionLoading || replaying || agentRunning}
-          >
-            Destroy Sandbox
-          </Button>
-        </div>
-      </div>
+        </Link>
+        <button
+          type="button"
+          className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
+          onClick={renameSandbox}
+        >
+          <span className="text-sm font-semibold">
+            {sandbox.name || `Sandbox :${sandbox.port}`}
+          </span>
+          <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+        </button>
+        <Badge variant="success" className="shrink-0">
+          <span className="size-1.5 rounded-full bg-current mr-0.5" />
+          {sandbox.status}
+        </Badge>
 
-      {/* Agent input */}
-      {agentShowInput && !agentRunning && (
-        <Card className="animate-slide-in-top border-purple-500/20 bg-purple-500/5">
-          <CardContent className="py-3">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (agentIntent.trim()) {
-                  setAgentShowInput(false);
-                  runAgentLoop();
-                }
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                value={agentIntent}
-                onChange={(e) => setAgentIntent(e.target.value)}
-                placeholder="Describe what the agent should do... (e.g., 'add the cheapest product to cart')"
-                className="flex-1 px-3 py-1.5 text-sm font-mono bg-transparent border border-purple-500/20 rounded focus:outline-none focus:border-purple-500/50 placeholder:text-muted-foreground/50"
-                autoFocus
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                disabled={!agentIntent.trim()}
-                className="border-purple-500/30 text-purple-600 hover:bg-purple-500/10"
-              >
-                Run
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
+        <span className="text-border shrink-0">|</span>
 
-      {/* Agent progress */}
-      {agentRunning && (
-        <Card className="animate-slide-in-top border-purple-500/20 bg-purple-500/5">
-          <CardContent className="py-3 flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-mono text-purple-600">
-                Step {agentStepCount} {agentPhase && `\u2014 ${agentPhase}`}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                {agentIntent}
-              </p>
-            </div>
-            <div className="w-32 h-1 bg-border overflow-hidden ml-4">
-              <div
-                className="h-full bg-purple-500/60 transition-all duration-300"
-                style={{ width: `${agentProgress * 100}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Replay progress */}
-      {replaying && (
-        <Card className="animate-slide-in-top border-border bg-card/80 backdrop-blur-sm">
-          <CardContent className="py-3 flex items-center justify-between">
-            <p className="text-sm font-mono">
-              Replaying step {replayStep} / {walkthroughSteps!.length}
-            </p>
-            <div className="w-32 h-1 bg-border overflow-hidden">
-              <div
-                className="h-full bg-foreground/60 transition-all duration-300"
-                style={{ width: `${(replayStep / walkthroughSteps!.length) * 100}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Replay error */}
-      {replayError && (
-        <Card className="animate-slide-in-top border-destructive/50 bg-destructive/5">
-          <CardContent className="py-3 flex items-center justify-between">
-            <p className="text-sm text-destructive">{replayError}</p>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={skipReplayStep}>
-                Skip
-              </Button>
-              <Button variant="destructive" size="sm" onClick={stopReplayOnError}>
-                Stop Replay
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Status message */}
-      {message && (
-        <Card className="animate-slide-in-top border-border bg-card/80 backdrop-blur-sm">
-          <CardContent className="py-3">
-            <p className="text-sm">{message}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Iframe container */}
-      <Card className="border-border overflow-hidden animate-fade-in-scale" style={{ animationDelay: "100ms" }}>
-        <CardHeader className="pb-2 border-b border-border/50 bg-secondary/30">
+        {/* Center: URL bar (from SandboxNavBar) */}
+        <div className="flex-1 min-w-0">
           <SandboxNavBar
             origin={new URL(sandbox.sandbox_url).origin}
             sandboxReady={sandboxReady}
@@ -965,19 +741,153 @@ export default function SandboxViewPage() {
             capturedStepsCount={capturedSteps.length}
             syncPath={iframeSyncPath}
           />
-        </CardHeader>
-        <CardContent className="p-0 relative">
+        </div>
+
+        <span className="text-border shrink-0">|</span>
+
+        {/* Right: action buttons */}
+        <div className="flex gap-1 items-center shrink-0">
+          {!agentRunning && !replaying && (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => setAgentShowInput(!agentShowInput)}
+              disabled={actionLoading}
+              className="gap-1"
+            >
+              <Bot className="size-3" />
+              Agent
+            </Button>
+          )}
+          {agentRunning && (
+            <Button variant="outline" size="xs" onClick={stopAgent} className="gap-1 text-onyx-coral">
+              <Square className="size-2.5" />
+              Stop
+            </Button>
+          )}
+          {walkthroughSteps && !replaying && !agentRunning && (
+            <Button variant="outline" size="xs" onClick={startReplay} disabled={actionLoading} className="gap-1">
+              <Play className="size-3" />
+              Replay
+            </Button>
+          )}
+          {replaying && (
+            <Button variant="outline" size="xs" onClick={stopReplay} className="gap-1 text-onyx-coral">
+              <Square className="size-2.5" />
+              Stop
+            </Button>
+          )}
+          <Button variant="outline" size="xs" onClick={saveState} disabled={actionLoading || replaying || agentRunning} className="gap-1">
+            <Save className="size-3" />
+            Save
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={destroySandbox}
+            disabled={actionLoading || replaying || agentRunning}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            title="Destroy"
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Agent input */}
+      {agentShowInput && !agentRunning && (
+        <div className="bg-card border-b border-border px-4 py-3 shrink-0 animate-fade-in-scale">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (agentIntent.trim()) { setAgentShowInput(false); runAgentLoop(); }
+            }}
+            className="flex gap-2"
+          >
+            <div className="relative flex-1">
+              <Bot className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={agentIntent}
+                onChange={(e) => setAgentIntent(e.target.value)}
+                placeholder="Describe what the agent should do..."
+                className="w-full h-9 pl-9 pr-3 text-sm bg-background border border-input rounded-none focus:outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 placeholder:text-muted-foreground/50"
+                autoFocus
+              />
+            </div>
+            <Button type="submit" variant="onyx" size="sm" disabled={!agentIntent.trim()}>
+              Run Agent
+            </Button>
+          </form>
+        </div>
+      )}
+
+      {/* Agent progress */}
+      {agentRunning && (
+        <div className="bg-card border-b border-border px-4 py-3 shrink-0 animate-fade-in-scale">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="size-8 rounded-none bg-onyx-green/10 flex items-center justify-center">
+                <Bot className="size-4 text-onyx-green" style={{ animation: "spin-slow 2s linear infinite" }} />
+              </div>
+              <div>
+                <p className="text-sm font-medium">
+                  Step {agentStepCount} {agentPhase && <span className="text-muted-foreground font-normal">— {agentPhase}</span>}
+                </p>
+                <p className="text-xs text-muted-foreground truncate max-w-[300px]">{agentIntent}</p>
+              </div>
+            </div>
+            <div className="w-32 h-1.5 bg-border overflow-hidden">
+              <div className="h-full bg-onyx-green transition-all duration-300" style={{ width: `${Math.max(agentProgress * 100, 5)}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Replay progress */}
+      {replaying && (
+        <div className="bg-card border-b border-border px-4 py-3 shrink-0 animate-fade-in-scale">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">
+              Replaying step {replayStep} / {walkthroughSteps!.length}
+            </p>
+            <div className="w-32 h-1.5 bg-border overflow-hidden">
+              <div className="h-full bg-onyx-green transition-all duration-300" style={{ width: `${(replayStep / walkthroughSteps!.length) * 100}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Replay error */}
+      {replayError && (
+        <div className="bg-onyx-coral/5 border-b border-onyx-coral/20 px-4 py-3 shrink-0 animate-fade-in-scale">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-onyx-coral">{replayError}</p>
+            <div className="flex gap-1.5">
+              <Button variant="outline" size="xs" onClick={skipReplayStep}>Skip</Button>
+              <Button variant="destructive" size="xs" onClick={stopReplayOnError}>Stop</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status message */}
+      {message && (
+        <div className="bg-card border-b border-border px-4 py-3 shrink-0 animate-fade-in">
+          <p className="text-sm">{message}</p>
+        </div>
+      )}
+
+      {/* Iframe container */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Iframe */}
+        <div className="relative flex-1 min-h-0">
           {!sandboxReady && !pollTimedOut && <SandboxLoader />}
 
           {pollTimedOut && (
-            <div
-              className="absolute inset-0 flex flex-col items-center justify-center bg-[#F9F8F6] animate-fade-in gap-4"
-              style={{ height: "calc(100vh - 280px)" }}
-            >
-              <p className="text-sm text-muted-foreground uppercase tracking-wider">
-                Taking longer than expected
-              </p>
-              <Button onClick={retry}>Retry Connection</Button>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background animate-fade-in gap-4">
+              <p className="text-sm text-muted-foreground">Taking longer than expected</p>
+              <Button variant="onyx" size="sm" onClick={retry}>Retry Connection</Button>
             </div>
           )}
 
@@ -986,29 +896,10 @@ export default function SandboxViewPage() {
             <div
               key={clickIndicator.key}
               className="absolute pointer-events-none z-10"
-              style={{
-                left: clickIndicator.x - 20,
-                top: clickIndicator.y - 20,
-                width: 40,
-                height: 40,
-              }}
+              style={{ left: clickIndicator.x - 20, top: clickIndicator.y - 20, width: 40, height: 40 }}
             >
-              <div
-                className="absolute inset-0 rounded-full border-2 border-[#E8913A]"
-                style={{
-                  animation: "click-ripple 0.8s ease-out forwards",
-                }}
-              />
-              <div
-                className="absolute rounded-full bg-[#E8913A]"
-                style={{
-                  width: 8,
-                  height: 8,
-                  left: 16,
-                  top: 16,
-                  animation: "click-dot 0.8s ease-out forwards",
-                }}
-              />
+              <div className="absolute inset-0 rounded-full border-2 border-onyx-green" style={{ animation: "click-ripple 0.8s ease-out forwards" }} />
+              <div className="absolute rounded-full bg-onyx-green" style={{ width: 8, height: 8, left: 16, top: 16, animation: "click-dot 0.8s ease-out forwards" }} />
             </div>
           )}
 
@@ -1016,24 +907,22 @@ export default function SandboxViewPage() {
             key={iframeKey}
             ref={iframeRef}
             src={sandboxReady ? `${new URL(sandbox.sandbox_url).origin}${iframePath}` : "about:blank"}
-            className="w-full border-0 transition-opacity duration-500 ease-out"
-            style={{
-              height: "calc(100vh - 280px)",
-              opacity: sandboxReady ? 1 : 0,
-            }}
+            className="w-full h-full border-0 transition-opacity duration-500 ease-out"
+            style={{ opacity: sandboxReady ? 1 : 0 }}
             title="Sandbox"
           />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Console log panel */}
-      <SandboxConsole
-        entries={logEntries}
-        expanded={logExpanded}
-        onToggle={() => setLogExpanded(!logExpanded)}
-        unseenCount={unseenLogCount}
-      />
-
+      <div className="shrink-0">
+        <SandboxConsole
+          entries={logEntries}
+          expanded={logExpanded}
+          onToggle={() => setLogExpanded(!logExpanded)}
+          unseenCount={unseenLogCount}
+        />
+      </div>
     </div>
   );
 }

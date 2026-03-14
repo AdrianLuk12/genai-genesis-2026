@@ -55,7 +55,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => {
       resolveRef.current?.(result);
       setState({ open: false, closing: false, options: { title: "" } });
-    }, 180);
+    }, 150);
   }, []);
 
   return (
@@ -102,44 +102,36 @@ function ConfirmModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-foreground/25 backdrop-blur-[6px] transition-opacity duration-200"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-150"
         style={{ opacity: closing ? 0 : 1 }}
         onClick={onCancel}
       />
 
       {/* Modal */}
       <div
-        className="relative w-full max-w-sm mx-4 bg-card border border-border shadow-[0_8px_40px_rgba(0,0,0,0.1)]"
+        className="relative w-full max-w-md mx-4 bg-card rounded-none border border-border shadow-xl"
         style={{
           animation: closing
             ? "none"
-            : "fade-in-scale 0.2s cubic-bezier(0.16, 1, 0.3, 1) both",
+            : "fade-in-scale 0.15s cubic-bezier(0.16, 1, 0.3, 1) both",
           opacity: closing ? 0 : 1,
-          transform: closing ? "scale(0.97) translateY(4px)" : undefined,
+          transform: closing ? "scale(0.97)" : undefined,
           transition: closing
-            ? "opacity 0.18s ease-out, transform 0.18s ease-out"
+            ? "opacity 0.15s ease-out, transform 0.15s ease-out"
             : undefined,
         }}
       >
-        {/* Decorative top line */}
-        <div
-          className={`h-px w-full ${variant === "destructive" ? "bg-destructive/40" : "bg-warm-tan"}`}
-        />
-
         <div className="p-6">
-          {/* Title */}
-          <h3 className="font-display font-bold text-base uppercase tracking-[0.12em]">
+          <h3 className="text-base font-semibold">
             {title}
           </h3>
 
-          {/* Description */}
           {description && (
-            <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
               {description}
             </p>
           )}
 
-          {/* Actions */}
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="outline" onClick={onCancel}>
               {cancelText}

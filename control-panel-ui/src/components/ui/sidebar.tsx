@@ -6,21 +6,46 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   FlaskConical,
+  Monitor,
+  Bot,
   ChevronLeft,
   ChevronRight,
   Beaker,
+  BarChart3,
+  Settings,
+  Waypoints,
 } from "lucide-react";
 
-const NAV_ITEMS = [
+interface NavSection {
+  heading?: string;
+  items: {
+    label: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: string;
+  }[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Dashboard",
-    href: "/",
-    icon: LayoutDashboard,
+    items: [
+      { label: "Dashboard", href: "/", icon: LayoutDashboard },
+    ],
   },
   {
-    label: "Scenarios",
-    href: "/scenarios",
-    icon: FlaskConical,
+    heading: "Testing",
+    items: [
+      { label: "Live", href: "/live", icon: Monitor, badge: "LIVE" },
+      { label: "Scenarios", href: "/scenarios", icon: FlaskConical },
+      { label: "AI Agent", href: "/agent", icon: Bot, badge: "NEW" },
+    ],
+  },
+  {
+    heading: "Analytics",
+    items: [
+      { label: "Insights", href: "/insights", icon: BarChart3 },
+      { label: "Tunnels", href: "/tunnels", icon: Waypoints },
+    ],
   },
 ];
 
@@ -28,75 +53,116 @@ export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
+  // /sandbox/* pages are fullscreen, hide sidebar
+  if (pathname.startsWith("/sandbox/")) return null;
+
+  function isActive(href: string) {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  }
+
   return (
     <aside
-      className={`flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200 ease-out ${
+      className={`flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200 ease-out shrink-0 ${
         collapsed ? "w-[60px]" : "w-[220px]"
       }`}
     >
       {/* Logo */}
       <div className="flex items-center h-14 px-4 border-b border-sidebar-border shrink-0">
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
-          <div className="size-7 rounded-none bg-sauce-green flex items-center justify-center shrink-0">
-            <Beaker className="size-4 text-sauce-dark" />
+          <div className="size-7 bg-onyx-green flex items-center justify-center shrink-0">
+            <Beaker className="size-4 text-onyx-dark" />
           </div>
           {!collapsed && (
             <span className="text-sm font-semibold text-white tracking-wide whitespace-nowrap">
-              SAUCE LABS
+              MONKEY LABS
             </span>
           )}
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-          const Icon = item.icon;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.disabled ? "#" : item.href}
-              className={`flex items-center gap-2.5 h-9 rounded-none transition-colors duration-150 ${
-                collapsed ? "justify-center px-0" : "px-2.5"
-              } ${
-                item.disabled
-                  ? "opacity-40 pointer-events-none"
-                  : isActive
-                  ? "bg-sidebar-accent text-white"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-white"
-              }`}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon className="size-[18px] shrink-0" />
-              {!collapsed && (
-                <span className="text-[13px] font-medium whitespace-nowrap">
-                  {item.label}
+      <nav className="flex-1 py-2 overflow-y-auto">
+        {NAV_SECTIONS.map((section, si) => (
+          <div key={si} className={si > 0 ? "mt-4" : ""}>
+            {section.heading && !collapsed && (
+              <div className="px-4 mb-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                  {section.heading}
                 </span>
-              )}
-            </Link>
-          );
-        })}
+              </div>
+            )}
+            {collapsed && si > 0 && (
+              <div className="mx-3 mb-2 border-t border-sidebar-border" />
+            )}
+            <div className="px-2 space-y-0.5">
+              {section.items.map((item) => {
+                const active = isActive(item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2.5 h-8 transition-colors duration-150 ${
+                      collapsed ? "justify-center px-0" : "px-2.5"
+                    } ${
+                      active
+                        ? "bg-sidebar-accent text-white"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white"
+                    }`}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <Icon className="size-[16px] shrink-0" />
+                    {!collapsed && (
+                      <>
+                        <span className="text-[13px] font-medium whitespace-nowrap flex-1">
+                          {item.label}
+                        </span>
+                        {item.badge && (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 ${
+                            item.badge === "LIVE"
+                              ? "bg-onyx-green/20 text-onyx-green"
+                              : item.badge === "NEW"
+                              ? "bg-onyx-amber/20 text-onyx-amber"
+                              : "bg-sidebar-accent text-sidebar-foreground"
+                          }`}>
+                            {item.badge}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="border-t border-sidebar-border p-2 shrink-0">
+      {/* Bottom */}
+      <div className="border-t border-sidebar-border p-2 shrink-0 space-y-0.5">
+        <Link
+          href="/settings"
+          className={`flex items-center gap-2.5 h-8 text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white transition-colors duration-150 ${
+            collapsed ? "justify-center px-0" : "px-2.5"
+          }`}
+          title={collapsed ? "Settings" : undefined}
+        >
+          <Settings className="size-[16px] shrink-0" />
+          {!collapsed && <span className="text-[13px] font-medium">Settings</span>}
+        </Link>
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className={`flex items-center gap-2.5 h-9 w-full rounded-none text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-white transition-colors duration-150 ${
+          className={`flex items-center gap-2.5 h-8 w-full text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-white transition-colors duration-150 ${
             collapsed ? "justify-center px-0" : "px-2.5"
           }`}
         >
           {collapsed ? (
-            <ChevronRight className="size-[18px] shrink-0" />
+            <ChevronRight className="size-[16px] shrink-0" />
           ) : (
             <>
-              <ChevronLeft className="size-[18px] shrink-0" />
+              <ChevronLeft className="size-[16px] shrink-0" />
               <span className="text-[13px] font-medium">Collapse</span>
             </>
           )}
