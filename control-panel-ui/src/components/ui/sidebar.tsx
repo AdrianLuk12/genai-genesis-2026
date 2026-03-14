@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  FlaskConical,
   Monitor,
   Bot,
   ChevronLeft,
@@ -14,6 +13,7 @@ import {
   BarChart3,
   Settings,
   Waypoints,
+  Box,
 } from "lucide-react";
 
 interface NavSection {
@@ -35,8 +35,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "Testing",
     items: [
+      { label: "Apps", href: "/apps", icon: Box },
       { label: "Live", href: "/live", icon: Monitor, badge: "LIVE" },
-      { label: "Scenarios", href: "/scenarios", icon: FlaskConical },
       { label: "AI Agent", href: "/agent", icon: Bot, badge: "NEW" },
     ],
   },

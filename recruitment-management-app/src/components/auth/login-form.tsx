@@ -45,13 +45,13 @@ export function LoginForm({ accent, title, subtitle, endpoint, successRedirect }
   }
 
   return (
-    <section className="stack auth-wrap">
-      <article className={`panel auth-card auth-card-${accent}`}>
+    <section className="stack auth-wrap" data-testid={`${accent}-login-page`}>
+      <article className={`panel auth-card auth-card-${accent}`} data-testid={`${accent}-login-card`}>
         <p className="eyebrow-light">Secure Access</p>
         <h2 className="title">{title}</h2>
         <p className="muted">{subtitle}</p>
 
-        <form className="stack" onSubmit={onSubmit}>
+        <form className="stack" onSubmit={onSubmit} data-testid={`${accent}-login-form`}>
           <input
             type="email"
             value={email}
@@ -59,6 +59,7 @@ export function LoginForm({ accent, title, subtitle, endpoint, successRedirect }
             placeholder="Work email"
             autoComplete="email"
             required
+            data-testid={`${accent}-login-email`}
           />
           <input
             type="password"
@@ -67,9 +68,10 @@ export function LoginForm({ accent, title, subtitle, endpoint, successRedirect }
             placeholder="Password"
             autoComplete="current-password"
             required
+            data-testid={`${accent}-login-password`}
           />
-          {error ? <p className="error-text">{error}</p> : null}
-          <button type="submit" disabled={loading}>
+          {error ? <p className="error-text" data-testid={`${accent}-login-error`}>{error}</p> : null}
+          <button type="submit" disabled={loading} data-testid={`${accent}-login-submit`}>
             {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>

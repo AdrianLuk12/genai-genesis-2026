@@ -27,6 +27,7 @@ interface Sandbox {
   status: string;
   created_at: string;
   name: string | null;
+  app_version_id: string | null;
 }
 
 interface Scenario {
@@ -35,9 +36,22 @@ interface Scenario {
   description: string;
 }
 
+interface AppVersion {
+  id: string;
+  app_id: string;
+  version_tag: string;
+}
+
+interface App {
+  id: string;
+  name: string;
+}
+
 export default function LivePage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [apps, setApps] = useState<App[]>([]);
+  const [versions, setVersions] = useState<AppVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -47,10 +61,18 @@ export default function LivePage() {
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    Promise.all([api("/api/sandboxes"), api("/api/scenarios")])
-      .then(([sbs, scs]) => {
+    Promise.all([api("/api/sandboxes"), api("/api/scenarios"), api("/api/apps")])
+      .then(async ([sbs, scs, aps]) => {
         setSandboxes(sbs);
         setScenarios(scs);
+        setApps(aps);
+        // Fetch all versions for all apps
+        const allVersions: AppVersion[] = [];
+        for (const app of aps) {
+          const vers = await api(`/api/apps/${app.id}/versions`);
+          allVersions.push(...vers);
+        }
+        setVersions(allVersions);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -58,6 +80,14 @@ export default function LivePage() {
 
   function scenarioName(scenarioId: string) {
     return scenarios.find((s) => s.id === scenarioId)?.name || "Unknown";
+  }
+
+  function appVersionLabel(appVersionId: string | null) {
+    if (!appVersionId) return null;
+    const ver = versions.find((v) => v.id === appVersionId);
+    if (!ver) return null;
+    const app = apps.find((a) => a.id === ver.app_id);
+    return `${app?.name || "?"} ${ver.version_tag}`;
   }
 
   async function destroySandbox(containerId: string) {
@@ -209,6 +239,7 @@ export default function LivePage() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Session</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Status</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">App / Version</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Scenario</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Port</th>
                 <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Container</th>
@@ -253,6 +284,9 @@ export default function LivePage() {
                       <span className="size-1.5 rounded-full bg-current mr-0.5" />
                       {sb.status}
                     </Badge>
+                  </td>
+                  <td className="py-3 px-4 text-xs text-muted-foreground">
+                    {appVersionLabel(sb.app_version_id) || "—"}
                   </td>
                   <td className="py-3 px-4 text-xs text-muted-foreground">
                     {scenarioName(sb.scenario_id)}

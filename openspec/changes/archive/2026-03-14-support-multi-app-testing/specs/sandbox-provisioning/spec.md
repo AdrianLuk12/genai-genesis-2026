@@ -1,15 +1,4 @@
-## Purpose
-
-Sandbox provisioning manages the lifecycle of Docker containers used for testing, including creating containers from app version images, tracking active containers, and cleanup.
-
-## Requirements
-
-### Requirement: Sandbox provisioning uses local storage
-The `POST /api/sandboxes` endpoint SHALL read scenario data from local SQLite and download .db files from the local filesystem instead of Supabase. Container records SHALL be stored in local SQLite.
-
-#### Scenario: Provision with local .db file
-- **WHEN** a sandbox is provisioned for a scenario with a db_file_path
-- **THEN** the .db file is read from `data/scenario_files/<db_file_path>` and mounted into the container
+## MODIFIED Requirements
 
 ### Requirement: System provisions a sandbox container
 The system SHALL create a Docker container for a sandbox using the Docker image associated with the scenario's app version. The system SHALL look up the scenario's `app_version_id`, retrieve the `docker_image_name` from the `app_versions` table, and use that image instead of a hardcoded image name. The container SHALL be labeled with `app_id` and `version_id` for tracking.
@@ -28,10 +17,3 @@ The `active_containers` table SHALL include `app_version_id` to track which app 
 #### Scenario: Active container includes app version
 - **WHEN** a sandbox is created from an app-versioned scenario
 - **THEN** the active_containers record includes the app_version_id from the scenario
-
-### Requirement: Active containers tracked in local SQLite
-The `GET /api/sandboxes`, `DELETE /api/sandboxes/{id}`, and `POST /api/cleanup` endpoints SHALL read from and write to the local SQLite active_containers table instead of Supabase.
-
-#### Scenario: Cleanup clears local records
-- **WHEN** a client sends `POST /api/cleanup`
-- **THEN** all containers are stopped/removed and all records are deleted from the local SQLite active_containers table

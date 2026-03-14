@@ -106,6 +106,10 @@ a {
   line-height: 1.2;
 }
 
+.title-contrast {
+  color: #80a2f8;
+}
+
 .panel {
   border: 1px solid var(--border);
   border-radius: 16px;

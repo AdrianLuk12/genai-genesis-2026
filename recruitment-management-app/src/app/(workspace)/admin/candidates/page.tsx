@@ -38,14 +38,14 @@ export default function AdminCandidatesPage() {
   }
 
   return (
-    <section className="stack">
+    <section className="stack" data-testid="admin-candidates-page">
       <header>
         <p className="eyebrow-light">Protected admin area</p>
-        <h2 className="title">Manage Candidates</h2>
+        <h2 className="title title-contrast">Manage Candidates</h2>
       </header>
 
-      <article className="panel">
-        <table>
+      <article className="panel" data-testid="admin-candidates-table-panel">
+        <table data-testid="admin-candidates-table">
           <thead><tr><th>Name</th><th>Email</th><th>Stage</th><th>Score</th><th>Actions</th></tr></thead>
           <tbody>
             {items.map((candidate) => (
@@ -53,12 +53,12 @@ export default function AdminCandidatesPage() {
                 <td>{candidate.name}</td>
                 <td>{candidate.email}</td>
                 <td>
-                  <select value={candidate.stage} onChange={(e) => updateStage(candidate.id, e.target.value)}>
+                  <select value={candidate.stage} onChange={(e) => updateStage(candidate.id, e.target.value)} data-testid={`candidate-stage-select-${candidate.id}`}>
                     <option>Applied</option><option>Screening</option><option>Interview</option><option>Offer</option><option>Hired</option><option>Rejected</option>
                   </select>
                 </td>
                 <td>{candidate.score}</td>
-                <td><button className="danger-btn" type="button" onClick={() => removeCandidate(candidate.id)}>Remove</button></td>
+                <td><button className="danger-btn" type="button" onClick={() => removeCandidate(candidate.id)} data-testid={`candidate-remove-${candidate.id}`}>Remove</button></td>
               </tr>
             ))}
           </tbody>

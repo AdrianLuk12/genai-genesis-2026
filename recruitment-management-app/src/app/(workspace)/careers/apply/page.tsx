@@ -51,20 +51,21 @@ export default function ApplyPage() {
   }
 
   return (
-    <section className="stack auth-wrap">
-      <article className="panel auth-card">
+    <section className="stack auth-wrap" data-testid="candidate-apply-page">
+      <article className="panel auth-card" data-testid="candidate-apply-card">
         <p className="eyebrow-light">Candidate application</p>
         <h2 className="title">Apply</h2>
 
         {submitted ? (
-          <p>Thanks! Your application has been submitted.</p>
+          <p data-testid="application-submitted-message">Thanks! Your application has been submitted.</p>
         ) : (
-          <form className="stack" onSubmit={onSubmit}>
+          <form className="stack" onSubmit={onSubmit} data-testid="candidate-apply-form">
             <input
               placeholder="Full name"
               value={form.name}
               onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
               required
+              data-testid="candidate-apply-name"
             />
             <input
               type="email"
@@ -72,11 +73,13 @@ export default function ApplyPage() {
               value={form.email}
               onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
               required
+              data-testid="candidate-apply-email"
             />
             <select
               value={form.jobId}
               onChange={(event) => setForm((prev) => ({ ...prev, jobId: event.target.value }))}
               required
+              data-testid="candidate-apply-job"
             >
               {jobs.map((job) => (
                 <option key={job.id} value={job.id}>
@@ -84,7 +87,7 @@ export default function ApplyPage() {
                 </option>
               ))}
             </select>
-            <button type="submit">Submit Application</button>
+            <button type="submit" data-testid="candidate-apply-submit">Submit Application</button>
           </form>
         )}
       </article>

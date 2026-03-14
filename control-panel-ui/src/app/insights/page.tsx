@@ -9,6 +9,7 @@ import {
   Activity,
   Clock,
   Server,
+  Box,
 } from "lucide-react";
 
 interface Sandbox {
@@ -39,6 +40,7 @@ export default function InsightsPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [appCount, setAppCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,11 +48,13 @@ export default function InsightsPage() {
       api("/api/sandboxes"),
       api("/api/scenarios"),
       api("/api/health").catch(() => null),
+      api("/api/apps").catch(() => []),
     ])
-      .then(([sbs, scs, h]) => {
+      .then(([sbs, scs, h, aps]) => {
         setSandboxes(sbs);
         setScenarios(scs);
         setHealth(h);
+        setAppCount(Array.isArray(aps) ? aps.length : 0);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -96,7 +100,14 @@ export default function InsightsPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+        <div className="bg-card border border-border p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <Box className="size-4" />
+            <span className="text-xs font-medium">Apps</span>
+          </div>
+          <p className="text-2xl font-semibold">{appCount}</p>
+        </div>
         <div className="bg-card border border-border p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-2">
             <Monitor className="size-4" />

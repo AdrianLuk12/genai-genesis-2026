@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowLeft,
+  ListVideo,
 } from "lucide-react";
 import Link from "next/link";
 import { SandboxNavBar } from "@/components/sandbox-nav-bar";
@@ -135,7 +136,9 @@ function SandboxLoader() {
 export default function SandboxViewPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const containerId = params.id as string;
+  const workflowId = searchParams.get("workflow");
 
   const { confirm } = useConfirm();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
@@ -208,17 +211,28 @@ export default function SandboxViewPage() {
       .finally(() => setLoading(false));
   }, [containerId]);
 
-  // Fetch parent scenario's walkthrough_steps
+  // Fetch walkthrough steps from workflow or parent scenario
   useEffect(() => {
     if (!sandbox) return;
-    api(`/api/scenarios/${sandbox.scenario_id}`)
-      .then((scenario: Scenario) => {
-        if (scenario.walkthrough_steps && scenario.walkthrough_steps.length > 0) {
-          setWalkthroughSteps(scenario.walkthrough_steps);
-        }
-      })
-      .catch(() => {});
-  }, [sandbox]);
+    if (workflowId) {
+      // Load steps from workflow
+      api(`/api/workflows/${workflowId}`)
+        .then((wf: { steps_json: CapturedStep[] }) => {
+          if (wf.steps_json && wf.steps_json.length > 0) {
+            setWalkthroughSteps(wf.steps_json);
+          }
+        })
+        .catch(() => {});
+    } else {
+      api(`/api/scenarios/${sandbox.scenario_id}`)
+        .then((scenario: Scenario) => {
+          if (scenario.walkthrough_steps && scenario.walkthrough_steps.length > 0) {
+            setWalkthroughSteps(scenario.walkthrough_steps);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [sandbox, workflowId]);
 
   // Poll for sandbox readiness
   useEffect(() => {
@@ -347,32 +361,46 @@ export default function SandboxViewPage() {
   }
 
   async function saveState() {
-    const ok = await confirm({
-      title: "Save Walkthrough State",
-      description: `The current state will be saved as a new scenario${capturedStepsRef.current.length > 0 ? ` with ${capturedStepsRef.current.length} captured steps` : ""}. The sandbox will be destroyed after saving.`,
-      confirmText: "Save State",
-    });
-    if (!ok) return;
+    const defaultName = "Scenario - " + new Date().toISOString().slice(0, 16).replace("T", " ");
+    const name = await editName({ title: "Save State", currentName: defaultName });
+    if (name === null) return;
     setActionLoading(true);
     try {
-      if (iframeRef.current?.contentWindow && sandbox) {
-        iframeRef.current.contentWindow.postMessage({ type: "stop-capture" }, new URL(sandbox.sandbox_url).origin);
-      }
-
-      const body: Record<string, unknown> = {};
-      if (capturedStepsRef.current.length > 0) {
-        body.walkthrough_steps = capturedStepsRef.current;
-      }
-
       await api(`/api/sandboxes/${containerId}/save`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ name }),
       });
-      addLog("info", `State saved with ${capturedStepsRef.current.length} steps`);
-      setMessage("State saved successfully! Redirecting...");
-      setTimeout(() => router.push("/"), 1500);
+      addLog("info", "State saved: " + name);
+      setMessage("State saved successfully!");
+      setTimeout(() => setMessage(""), 2000);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function saveWorkflow() {
+    if (capturedStepsRef.current.length === 0) {
+      setMessage("No steps captured yet. Interact with the app first.");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+    const defaultName = "Workflow - " + new Date().toISOString().slice(0, 16).replace("T", " ");
+    const name = await editName({ title: "Save Workflow", currentName: defaultName });
+    if (name === null) return;
+    setActionLoading(true);
+    try {
+      await api(`/api/sandboxes/${containerId}/save-workflow`, {
+        method: "POST",
+        body: JSON.stringify({ name, steps_json: capturedStepsRef.current }),
+      });
+      addLog("info", "Workflow saved: " + name);
+      setMessage("Workflow saved successfully!");
+      setTimeout(() => setMessage(""), 2000);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Save failed");
+    } finally {
       setActionLoading(false);
     }
   }
@@ -801,7 +829,11 @@ export default function SandboxViewPage() {
           )}
           <Button variant="outline" size="xs" onClick={saveState} disabled={actionLoading || replaying || agentRunning} className="gap-1">
             <Save className="size-3" />
-            Save
+            Save State
+          </Button>
+          <Button variant="outline" size="xs" onClick={saveWorkflow} disabled={actionLoading || replaying || agentRunning || capturedSteps.length === 0} className="gap-1">
+            <ListVideo className="size-3" />
+            Save Workflow
           </Button>
           <Button
             variant="ghost"
