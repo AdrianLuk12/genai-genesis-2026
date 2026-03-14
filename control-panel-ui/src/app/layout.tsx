@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ConfirmProvider } from "@/components/ui/confirm-modal";
-import { EditProvider } from "@/components/ui/edit-name-modal";
 import { Sidebar } from "@/components/ui/sidebar";
 import "./globals.css";
 
@@ -31,16 +30,14 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <ConfirmProvider>
-          <EditProvider>
-            <div className="flex h-screen overflow-hidden">
-              <Sidebar />
-              <main className="flex-1 overflow-y-auto">
-                <div className="max-w-[1400px] mx-auto px-8 py-6">
-                  {children}
-                </div>
-              </main>
-            </div>
-          </EditProvider>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-[1400px] mx-auto px-8 py-6">
+                {children}
+              </div>
+            </main>
+          </div>
         </ConfirmProvider>
       </body>
     </html>

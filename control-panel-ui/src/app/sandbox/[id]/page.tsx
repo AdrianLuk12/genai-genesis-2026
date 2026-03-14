@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditName } from "@/components/ui/edit-name-modal";
 import {
   Pencil,
   Play,
@@ -139,8 +138,10 @@ export default function SandboxViewPage() {
   const containerId = params.id as string;
 
   const { confirm } = useConfirm();
-  const editName = useEditName();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -321,19 +322,24 @@ export default function SandboxViewPage() {
 
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
-  async function renameSandbox() {
+  function startRename() {
     if (!sandbox) return;
-    const newName = await editName({
-      title: "Rename Sandbox",
-      currentName: sandbox.name || "",
-    });
-    if (newName === null) return;
+    setNameDraft(sandbox.name || `Sandbox :${sandbox.port}`);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    if (!sandbox) return;
+    setEditingName(false);
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === sandbox.name) return;
     const prev = { ...sandbox };
-    setSandbox((s) => (s ? { ...s, name: newName || null } : s));
+    setSandbox((s) => (s ? { ...s, name: trimmed } : s));
     try {
       await api(`/api/sandboxes/${containerId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: trimmed }),
       });
     } catch {
       setSandbox(prev);
@@ -711,16 +717,32 @@ export default function SandboxViewPage() {
             <ArrowLeft className="size-3.5" />
           </Button>
         </Link>
-        <button
-          type="button"
-          className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
-          onClick={renameSandbox}
-        >
-          <span className="text-sm font-semibold">
-            {sandbox.name || `Sandbox :${sandbox.port}`}
-          </span>
-          <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-        </button>
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") setEditingName(false);
+            }}
+            size={Math.max(nameDraft.length, 1)}
+            className="text-sm font-semibold bg-transparent border-b border-onyx-green outline-none shrink-0"
+            autoFocus
+          />
+        ) : (
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-onyx-green transition-colors group shrink-0"
+            onClick={startRename}
+          >
+            <span className="text-sm font-semibold">
+              {sandbox.name || `Sandbox :${sandbox.port}`}
+            </span>
+            <Pencil className="size-2.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+          </button>
+        )}
         <Badge variant="success" className="shrink-0">
           <span className="size-1.5 rounded-full bg-current mr-0.5" />
           {sandbox.status}

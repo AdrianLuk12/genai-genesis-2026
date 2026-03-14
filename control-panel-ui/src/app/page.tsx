@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditName } from "@/components/ui/edit-name-modal";
 import {
   Monitor,
   Play,
@@ -42,7 +41,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
   const { confirm } = useConfirm();
-  const editName = useEditName();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     Promise.all([api("/api/sandboxes"), api("/api/scenarios")])
@@ -77,22 +78,27 @@ export default function DashboardPage() {
     setSandboxes(sandboxes.filter((s) => s.container_id !== containerId));
   }
 
-  async function renameSandbox(containerId: string, currentName: string) {
-    const newName = await editName({
-      title: "Rename Sandbox",
-      currentName,
-    });
-    if (newName === null) return;
+  function startRename(containerId: string, currentName: string) {
+    setEditingId(containerId);
+    setNameDraft(currentName);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename(containerId: string) {
+    setEditingId(null);
+    const trimmed = nameDraft.trim();
+    const current = sandboxes.find((s) => s.container_id === containerId);
+    if (!trimmed || trimmed === current?.name) return;
     const prev = sandboxes.map((s) => ({ ...s }));
     setSandboxes((sbs) =>
       sbs.map((s) =>
-        s.container_id === containerId ? { ...s, name: newName || null } : s
+        s.container_id === containerId ? { ...s, name: trimmed } : s
       )
     );
     try {
       await api(`/api/sandboxes/${containerId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: trimmed }),
       });
     } catch {
       setSandboxes(prev);
@@ -177,14 +183,30 @@ export default function DashboardPage() {
                     className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                   >
                     <td className="py-3 px-4">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
-                        onClick={() => renameSandbox(sb.container_id, sb.name || "")}
-                      >
-                        {sb.name || `Sandbox :${sb.port}`}
-                        <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
-                      </button>
+                      {editingId === sb.container_id ? (
+                        <input
+                          ref={nameInputRef}
+                          value={nameDraft}
+                          onChange={(e) => setNameDraft(e.target.value)}
+                          onBlur={() => commitRename(sb.container_id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(sb.container_id);
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          size={Math.max(nameDraft.length, 1)}
+                          className="text-sm font-medium bg-transparent border-b border-onyx-green outline-none"
+                          autoFocus
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
+                          onClick={() => startRename(sb.container_id, sb.name || "")}
+                        >
+                          {sb.name || `Sandbox :${sb.port}`}
+                          <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                        </button>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <Badge variant="success">

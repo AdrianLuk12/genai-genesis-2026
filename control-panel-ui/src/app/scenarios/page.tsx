@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-modal";
-import { useEditScenario } from "@/components/ui/edit-name-modal";
 import {
   FlaskConical,
   Play,
   Trash2,
-  Pencil,
   Plus,
   X,
   Search,
@@ -67,7 +66,6 @@ export default function ScenariosPage() {
   const [configJson, setConfigJson] = useState("{}");
   const [search, setSearch] = useState("");
   const { confirm } = useConfirm();
-  const editScenario = useEditScenario();
 
   useEffect(() => {
     loadScenarios();
@@ -118,31 +116,6 @@ export default function ScenariosPage() {
     } catch (e) {
       alert(e instanceof Error ? e.message : "Launch failed");
       setLaunching(null);
-    }
-  }
-
-  async function renameScenario(sc: Scenario) {
-    const result = await editScenario({
-      title: "Edit Scenario",
-      currentName: sc.name,
-      currentDescription: sc.description,
-    });
-    if (!result) return;
-    const prev = scenarios.map((s) => ({ ...s }));
-    setScenarios((scs) =>
-      scs.map((s) =>
-        s.id === sc.id
-          ? { ...s, name: result.name || s.name, description: result.description }
-          : s
-      )
-    );
-    try {
-      await api(`/api/scenarios/${sc.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: result.name, description: result.description }),
-      });
-    } catch {
-      setScenarios(prev);
     }
   }
 
@@ -302,14 +275,12 @@ export default function ScenariosPage() {
                   )}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
-                        onClick={() => renameScenario(sc)}
+                      <Link
+                        href={`/scenarios/${sc.id}`}
+                        className="font-medium hover:text-onyx-green transition-colors"
                       >
                         {sc.name}
-                        <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
-                      </button>
+                      </Link>
                       {sc.parent_scenario_id && (
                         <Badge variant="secondary" className="text-[10px]">
                           <GitBranch className="size-2.5 mr-0.5" />
@@ -332,13 +303,14 @@ export default function ScenariosPage() {
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-1">
                       <Button
-                        variant="onyx"
-                        size="xs"
+                        variant="ghost"
+                        size="icon-xs"
                         onClick={() => launchSandbox(sc.id)}
                         disabled={launching === sc.id}
+                        title="Launch"
+                        className="text-onyx-green hover:text-onyx-green hover:bg-onyx-green/10"
                       >
-                        <Play className="size-3" />
-                        Launch
+                        <Play className="size-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
