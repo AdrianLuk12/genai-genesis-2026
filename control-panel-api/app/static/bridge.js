@@ -9,46 +9,6 @@
   var inputListener = null;
   var stepIndex = 0;
 
-  // Buffer for navigation-only click detection:
-  // Clicks on <a> tags or form submit buttons are held briefly.
-  // If a URL change follows, the click was navigation-only and is discarded.
-  // If no URL change, the click is flushed as a normal captured step.
-  var pendingNavClick = null;
-  var pendingNavTimer = null;
-
-  function flushPendingNavClick() {
-    if (pendingNavClick) {
-      window.parent.postMessage({ type: "step-captured", step: pendingNavClick }, "*");
-      pendingNavClick = null;
-    }
-    if (pendingNavTimer) {
-      clearTimeout(pendingNavTimer);
-      pendingNavTimer = null;
-    }
-  }
-
-  function discardPendingNavClick() {
-    if (pendingNavClick) {
-      stepIndex--; // reclaim the index
-      pendingNavClick = null;
-    }
-    if (pendingNavTimer) {
-      clearTimeout(pendingNavTimer);
-      pendingNavTimer = null;
-    }
-  }
-
-  function isNavigationElement(target) {
-    // Click is inside an <a> with href
-    if (target.closest && target.closest("a[href]")) return true;
-    // Click is on a submit-like element inside a form
-    if (target.closest && target.closest("form")) {
-      var btn = target.closest("button, input[type='submit']");
-      if (btn) return true;
-    }
-    return false;
-  }
-
   function getCssPath(el) {
     var parts = [];
     var current = el;
@@ -134,8 +94,6 @@
     var currentPath = window.location.pathname + window.location.search;
     if (currentPath !== lastKnownPath) {
       lastKnownPath = currentPath;
-      // URL changed — if a nav click was buffered, it was navigation-only; discard it
-      discardPendingNavClick();
       window.parent.postMessage({ type: "url-changed", path: window.location.pathname, search: window.location.search }, "*");
     }
   }
@@ -179,8 +137,6 @@
       clickListener = function (e) {
         var target = e.target;
         if (!target || !target.tagName) return;
-        // Flush any previously buffered nav click before processing new click
-        flushPendingNavClick();
         var info = getSelector(target);
         var step = {
           index: stepIndex++,
@@ -193,13 +149,7 @@
           pageTitle: document.title,
           action: "click"
         };
-        if (isNavigationElement(target)) {
-          // Buffer the click — if a URL change follows, discard it (navigation-only)
-          pendingNavClick = step;
-          pendingNavTimer = setTimeout(flushPendingNavClick, 500);
-        } else {
-          window.parent.postMessage({ type: "step-captured", step: step }, "*");
-        }
+        window.parent.postMessage({ type: "step-captured", step: step }, "*");
       };
 
       inputListener = function (e) {
