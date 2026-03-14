@@ -45,7 +45,7 @@ interface CapturedStep {
   elementTag: string;
   elementText: string;
   pageTitle: string;
-  action?: "click" | "input";
+  action?: "click" | "input" | "navigate";
   inputValue?: string;
   inputType?: string;
 }
@@ -140,6 +140,7 @@ export default function SandboxViewPage() {
   const searchParams = useSearchParams();
   const containerId = params.id as string;
   const workflowId = searchParams.get("workflow");
+  const autoAgentIntent = searchParams.get("agent");
 
   const { confirm } = useConfirm();
   const editName = useEditName();
@@ -178,6 +179,7 @@ export default function SandboxViewPage() {
   const [agentStepCount, setAgentStepCount] = useState(0);
   const agentAbortRef = useRef(false);
   const agentActionsRef = useRef<AgentAction[]>([]);
+  const autoAgentFiredRef = useRef(false);
 
   // Click indicator overlay
   const [clickIndicator, setClickIndicator] = useState<ClickIndicator | null>(null);
@@ -333,6 +335,19 @@ export default function SandboxViewPage() {
     return () => clearTimeout(timer);
   }, [sandboxReady, sandbox, addLog]);
 
+  // Auto-run agent when sandbox is ready and ?agent= query param is present
+  useEffect(() => {
+    if (!sandboxReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
+    autoAgentFiredRef.current = true;
+    setAgentIntent(autoAgentIntent);
+    // Small delay to ensure iframe bridge is initialized
+    const timer = setTimeout(() => {
+      runAgentLoop(autoAgentIntent);
+    }, 2000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sandboxReady, autoAgentIntent, sandbox]);
+
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
   async function renameSandbox() {
@@ -438,38 +453,22 @@ export default function SandboxViewPage() {
       const step = walkthroughSteps[i];
       const action = step.action || "click";
 
-      const prevUrl = i > 0 ? walkthroughSteps[i - 1].url : null;
-      if (prevUrl !== step.url) {
-        addLog("info", `Navigating to ${step.url}`);
+      if (replayAbortRef.current) break;
+
+      if (action === "navigate") {
+        addLog("replay", `Step ${i + 1}: navigating to ${step.url}`);
         iframeRef.current!.contentWindow?.postMessage(
           { type: "navigate", url: step.url },
           targetOrigin
         );
-        // Wait for either navigate-done (SPA nav) or bridge-ready (full page reload)
         const msg = await waitForAnyMessage(["navigate-done", "bridge-ready"], 8000);
         if (msg) {
-          // Give the new page a moment to settle (DOM render)
           await sleep(msg.type === "bridge-ready" ? 1000 : 500);
         } else if (!replayAbortRef.current) {
-          // Timeout — wait longer as last resort
           await sleep(2000);
         }
-      }
-
-      if (replayAbortRef.current) break;
-
-      // Skip navigation-only clicks: if this click step is followed by a step on
-      // a different URL, the click only served to navigate — replay handles that
-      // via the explicit navigate above. Covers <a> tags, form submits, etc.
-      if (action === "click") {
-        const nextStep = i + 1 < walkthroughSteps.length ? walkthroughSteps[i + 1] : null;
-        if (nextStep && nextStep.url !== step.url) {
-          addLog("replay", `Step ${i + 1}: skipping navigation click (next step navigates to ${nextStep.url})`);
-          continue;
-        }
-      }
-
-      if (action === "input") {
+        addLog("replay", `Step ${i + 1} completed`);
+      } else if (action === "input") {
         addLog("replay", `Step ${i + 1}: typing "${(step.inputValue || "").slice(0, 30)}" into ${step.selector}`);
         let inputDone = false;
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -510,6 +509,11 @@ export default function SandboxViewPage() {
           if (userAction === "stop") { replayAbortRef.current = true; break; }
           flushSync(() => setReplayError(null));
           continue;
+        }
+        // After a click, check if it caused navigation (full reload or SPA nav)
+        const navMsg = await waitForAnyMessage(["url-changed", "bridge-ready"], 2000);
+        if (navMsg) {
+          await sleep(navMsg.type === "bridge-ready" ? 1000 : 500);
         }
       }
 
@@ -578,8 +582,9 @@ export default function SandboxViewPage() {
   function stopReplayOnError() { replayDecisionResolverRef.current?.("stop"); replayDecisionResolverRef.current = null; }
 
   // AI Agent logic
-  async function runAgentLoop() {
-    if (!iframeRef.current || !sandbox || !agentIntent.trim()) return;
+  async function runAgentLoop(intentOverride?: string) {
+    const intent = intentOverride || agentIntent;
+    if (!iframeRef.current || !sandbox || !intent.trim()) return;
 
     setAgentRunning(true);
     setAgentPhase("Starting...");
@@ -587,7 +592,7 @@ export default function SandboxViewPage() {
     setAgentStepCount(0);
     agentAbortRef.current = false;
     agentActionsRef.current = [];
-    addLog("agent", `Agent started: "${agentIntent}"`);
+    addLog("agent", `Agent started: "${intent}"`);
 
     const targetOrigin = new URL(sandbox.sandbox_url).origin;
     const MAX_STEPS = 30;
@@ -616,7 +621,7 @@ export default function SandboxViewPage() {
         response = await api("/api/agent/next-action", {
           method: "POST",
           body: JSON.stringify({
-            intent: agentIntent,
+            intent,
             current_dom: domResult.html as string,
             current_url: domResult.url as string,
             current_title: domResult.title as string,
@@ -764,8 +769,42 @@ export default function SandboxViewPage() {
             onNavigate={(fullUrl) => {
               const url = new URL(fullUrl);
               setIframePath(url.pathname);
+              if (!replayingRef.current) {
+                const step: CapturedStep = {
+                  index: capturedStepsRef.current.length,
+                  timestamp: Date.now(),
+                  url: url.pathname,
+                  selector: "",
+                  fallbackSelectors: [],
+                  elementTag: "",
+                  elementText: "",
+                  pageTitle: "",
+                  action: "navigate",
+                };
+                capturedStepsRef.current = [...capturedStepsRef.current, step];
+                setCapturedSteps(capturedStepsRef.current);
+                addLog("capture", `Navigate: ${url.pathname}`);
+              }
             }}
-            onRefresh={() => setIframeKey((k) => k + 1)}
+            onRefresh={() => {
+              setIframeKey((k) => k + 1);
+              if (!replayingRef.current) {
+                const step: CapturedStep = {
+                  index: capturedStepsRef.current.length,
+                  timestamp: Date.now(),
+                  url: iframePath,
+                  selector: "",
+                  fallbackSelectors: [],
+                  elementTag: "",
+                  elementText: "",
+                  pageTitle: "",
+                  action: "navigate",
+                };
+                capturedStepsRef.current = [...capturedStepsRef.current, step];
+                setCapturedSteps(capturedStepsRef.current);
+                addLog("capture", `Navigate (refresh): ${iframePath}`);
+              }
+            }}
             capturedStepsCount={capturedSteps.length}
             syncPath={iframeSyncPath}
           />
