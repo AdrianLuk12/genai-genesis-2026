@@ -4,12 +4,17 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-const navItems = [
+const adminNavItems = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/jobs", label: "Jobs" },
   { href: "/admin/candidates", label: "Candidates" },
   { href: "/admin/interviews", label: "Interviews" },
-  { href: "/careers", label: "Career Site" },
+  { href: "/admin/candidate-preview", label: "Candidate Preview" },
+];
+
+const candidateNavItems = [
+  { href: "/careers", label: "Open Roles" },
+  { href: "/careers/apply", label: "Apply" },
 ];
 
 const titleMap: Record<string, { title: string; subtitle: string }> = {
@@ -17,6 +22,10 @@ const titleMap: Record<string, { title: string; subtitle: string }> = {
   "/admin/jobs": { title: "Job Requisitions", subtitle: "Open, pause, and close hiring plans" },
   "/admin/candidates": { title: "Candidate Pipeline", subtitle: "Move candidates through hiring stages" },
   "/admin/interviews": { title: "Interview Operations", subtitle: "Coordinate interview loops and outcomes" },
+  "/admin/candidate-preview": {
+    title: "Candidate Experience Preview",
+    subtitle: "Preview what candidates see without switching sessions",
+  },
   "/careers": { title: "Careers Experience", subtitle: "Review the candidate-facing job portal" },
   "/careers/apply": { title: "Application Flow", subtitle: "Submit candidate applications in the public flow" },
 };
@@ -29,6 +38,8 @@ export function WorkspaceShell({ children }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const isCandidateView = pathname?.startsWith("/careers") ?? false;
+  const navItems = isCandidateView ? candidateNavItems : adminNavItems;
 
   const heading = useMemo(() => {
     if (!pathname) {
@@ -53,14 +64,21 @@ export function WorkspaceShell({ children }: Props) {
     <div className="workspace-shell">
       <aside className="workspace-sidebar">
         <div className="brand-block">
-          <p className="eyebrow">Recruitment OS</p>
+          <p className="eyebrow">{isCandidateView ? "Candidate Portal" : "Recruitment OS"}</p>
           <h1 className="brand">RecruitOps</h1>
-          <p className="muted">A polished hiring workspace for modern recruiting teams.</p>
+          <p className="muted">
+            {isCandidateView
+              ? "Explore opportunities and submit applications."
+              : "A polished hiring workspace for modern recruiting teams."}
+          </p>
         </div>
 
         <nav className="nav-list">
           {navItems.map((item) => {
-            const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+            const active =
+              item.href === "/admin"
+                ? pathname === item.href
+                : pathname === item.href || pathname?.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.href}
