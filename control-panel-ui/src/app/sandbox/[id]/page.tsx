@@ -14,6 +14,8 @@ import {
 import { useConfirm } from "@/components/ui/confirm-modal";
 import { useEditName } from "@/components/ui/edit-name-modal";
 import { Pencil } from "lucide-react";
+import { SandboxNavBar } from "@/components/sandbox-nav-bar";
+import { SandboxConsole } from "@/components/sandbox-console";
 
 interface Sandbox {
   id: string;
@@ -84,7 +86,7 @@ function SandboxLoader() {
           backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, #C9B59C 2px, #C9B59C 3px)",
         }} />
         <div
-          className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#C9B59C]/10 to-transparent animate-scan-line"
+          className="absolute top-0 left-0 right-0 h-16 bg-linear-to-b from-[#C9B59C]/10 to-transparent animate-scan-line"
         />
       </div>
       <div className="relative z-10 flex flex-col items-center gap-6">
@@ -131,6 +133,11 @@ export default function SandboxViewPage() {
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [pollKey, setPollKey] = useState(0);
 
+  // Nav bar state
+  const [iframePath, setIframePath] = useState("/");
+  const [iframeKey, setIframeKey] = useState(0);
+  const [iframeSyncPath, setIframeSyncPath] = useState<string | undefined>();
+
   // Capture state
   const [capturedSteps, setCapturedSteps] = useState<CapturedStep[]>([]);
   const capturedStepsRef = useRef<CapturedStep[]>([]);
@@ -139,6 +146,7 @@ export default function SandboxViewPage() {
   // Replay state
   const [walkthroughSteps, setWalkthroughSteps] = useState<CapturedStep[] | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const replayingRef = useRef(false);
   const [replayStep, setReplayStep] = useState(0);
   const [replayError, setReplayError] = useState<string | null>(null);
   const replayAbortRef = useRef(false);
@@ -151,7 +159,6 @@ export default function SandboxViewPage() {
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [logExpanded, setLogExpanded] = useState(false);
   const [unseenLogCount, setUnseenLogCount] = useState(0);
-  const logEndRef = useRef<HTMLDivElement>(null);
   const logExpandedRef = useRef(false);
 
   const addLog = useCallback((type: LogEntry["type"], msg: string) => {
@@ -164,13 +171,6 @@ export default function SandboxViewPage() {
     logExpandedRef.current = logExpanded;
     if (logExpanded) setUnseenLogCount(0);
   }, [logExpanded]);
-
-  // Auto-scroll log
-  useEffect(() => {
-    if (logExpanded && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [logEntries, logExpanded]);
 
   useEffect(() => {
     api("/api/sandboxes")
@@ -224,6 +224,23 @@ export default function SandboxViewPage() {
 
       const { type } = event.data || {};
 
+      // Bridge reinitialized after full-page navigation — re-enable capture if not replaying
+      if (type === "bridge-ready") {
+        const path = event.data.path as string;
+        // During replay, don't update iframePath — it would change the iframe src
+        // and cause a second reload that races with replay commands
+        if (!replayingRef.current) {
+          setIframeSyncPath(path);
+          setIframePath(path);
+          if (iframeRef.current?.contentWindow && sandbox) {
+            iframeRef.current.contentWindow.postMessage(
+              { type: "start-capture" },
+              new URL(sandbox.sandbox_url).origin,
+            );
+          }
+        }
+      }
+
       if (type === "step-captured") {
         const step = event.data.step as CapturedStep;
         capturedStepsRef.current = [...capturedStepsRef.current, step];
@@ -232,6 +249,15 @@ export default function SandboxViewPage() {
           ? `Input: "${(step.inputValue || "").slice(0, 30)}" into ${step.selector}`
           : `Click: ${step.elementTag} "${step.elementText.slice(0, 40)}" at ${step.selector}`;
         addLog("capture", actionLabel);
+      }
+
+      if (type === "url-changed") {
+        // During replay, bridge handles navigation internally — don't fight it with src changes
+        if (!replayingRef.current) {
+          const path = event.data.path as string;
+          setIframeSyncPath(path);
+          setIframePath(path);
+        }
       }
 
       if (type === "replay-click-location") {
@@ -344,6 +370,7 @@ export default function SandboxViewPage() {
   async function startReplay() {
     if (!walkthroughSteps || !iframeRef.current || !sandbox) return;
     setReplaying(true);
+    replayingRef.current = true;
     setReplayStep(0);
     setReplayError(null);
     replayAbortRef.current = false;
@@ -371,16 +398,29 @@ export default function SandboxViewPage() {
           { type: "navigate", url: step.url },
           targetOrigin
         );
-        const navOk = await waitForMessage("navigate-done", 5000);
-        if (!navOk && !replayAbortRef.current) {
-          // Navigation may have caused full page reload — wait for bridge to reload
+        // Wait for either navigate-done (SPA nav) or bridge-ready (full page reload)
+        const msg = await waitForAnyMessage(["navigate-done", "bridge-ready"], 8000);
+        if (msg) {
+          // Give the new page a moment to settle (DOM render)
+          await sleep(msg.type === "bridge-ready" ? 1000 : 500);
+        } else if (!replayAbortRef.current) {
+          // Timeout — wait longer as last resort
           await sleep(2000);
-        } else {
-          await sleep(500);
         }
       }
 
       if (replayAbortRef.current) break;
+
+      // Skip navigation-only clicks: if this click step is followed by a step on
+      // a different URL, the click only served to navigate — replay handles that
+      // via the explicit navigate above. Covers <a> tags, form submits, etc.
+      if (action === "click") {
+        const nextStep = i + 1 < walkthroughSteps.length ? walkthroughSteps[i + 1] : null;
+        if (nextStep && nextStep.url !== step.url) {
+          addLog("replay", `Step ${i + 1}: skipping navigation click (next step navigates to ${nextStep.url})`);
+          continue;
+        }
+      }
 
       if (action === "input") {
         addLog("replay", `Step ${i + 1}: typing "${(step.inputValue || "").slice(0, 30)}" into ${step.selector}`);
@@ -454,17 +494,25 @@ export default function SandboxViewPage() {
       await sleep(800);
     }
 
-    // Restart capture after replay
+    // Sync nav bar to wherever the iframe ended up, then restart capture
+    const lastStep = walkthroughSteps[Math.min(replayAbortRef.current ? Math.max(0, replayStep - 1) : walkthroughSteps.length - 1, walkthroughSteps.length - 1)];
+    if (lastStep) {
+      setIframePath(lastStep.url);
+      setIframeSyncPath(lastStep.url);
+    }
+
     iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
 
     addLog("replay", replayAbortRef.current ? "Replay stopped" : "Replay complete");
     setReplaying(false);
+    replayingRef.current = false;
     setReplayStep(0);
     setReplayError(null);
   }
 
   function stopReplay() {
     replayAbortRef.current = true;
+    replayingRef.current = false;
     setReplaying(false);
     setReplayStep(0);
     setReplayError(null);
@@ -481,6 +529,26 @@ export default function SandboxViewPage() {
       function handler(event: MessageEvent) {
         if (!event.origin.startsWith("http://localhost")) return;
         if (event.data?.type === type) {
+          clearTimeout(timer);
+          window.removeEventListener("message", handler);
+          resolve(event.data);
+        }
+      }
+
+      window.addEventListener("message", handler);
+    });
+  }
+
+  function waitForAnyMessage(types: string[], timeout: number): Promise<Record<string, unknown> | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve(null);
+      }, timeout);
+
+      function handler(event: MessageEvent) {
+        if (!event.origin.startsWith("http://localhost")) return;
+        if (types.includes(event.data?.type)) {
           clearTimeout(timer);
           window.removeEventListener("message", handler);
           resolve(event.data);
@@ -620,33 +688,17 @@ export default function SandboxViewPage() {
       {/* Iframe container */}
       <Card className="border-border overflow-hidden animate-fade-in-scale" style={{ animationDelay: "100ms" }}>
         <CardHeader className="pb-2 border-b border-border/50 bg-secondary/30">
-          <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="size-2 bg-green-500/80 inline-block"
-                style={{ animation: sandboxReady ? "none" : "pulse-subtle 2s ease-in-out infinite" }}
-              />
-              {sandboxReady ? "LIVE" : "CONNECTING"}
-            </span>
-            <span className="text-border">|</span>
-            <a
-              href={sandbox.sandbox_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-foreground transition-colors duration-200"
-            >
-              {sandbox.sandbox_url}
-            </a>
-            {sandboxReady && capturedSteps.length > 0 && (
-              <>
-                <span className="text-border">|</span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="size-2 bg-red-500/80 inline-block animate-pulse" />
-                  REC {capturedSteps.length} steps
-                </span>
-              </>
-            )}
-          </CardTitle>
+          <SandboxNavBar
+            origin={new URL(sandbox.sandbox_url).origin}
+            sandboxReady={sandboxReady}
+            onNavigate={(fullUrl) => {
+              const url = new URL(fullUrl);
+              setIframePath(url.pathname);
+            }}
+            onRefresh={() => setIframeKey((k) => k + 1)}
+            capturedStepsCount={capturedSteps.length}
+            syncPath={iframeSyncPath}
+          />
         </CardHeader>
         <CardContent className="p-0 relative">
           {!sandboxReady && !pollTimedOut && <SandboxLoader />}
@@ -695,8 +747,9 @@ export default function SandboxViewPage() {
           )}
 
           <iframe
+            key={iframeKey}
             ref={iframeRef}
-            src={sandboxReady ? sandbox.sandbox_url : "about:blank"}
+            src={sandboxReady ? `${new URL(sandbox.sandbox_url).origin}${iframePath}` : "about:blank"}
             className="w-full border-0 transition-opacity duration-500 ease-out"
             style={{
               height: "calc(100vh - 280px)",
@@ -708,51 +761,12 @@ export default function SandboxViewPage() {
       </Card>
 
       {/* Console log panel */}
-      <div className="fixed bottom-0 left-0 right-0 z-40">
-        <button
-          type="button"
-          onClick={() => setLogExpanded(!logExpanded)}
-          className="w-full flex items-center justify-between px-4 py-2 bg-[#1a1a1a] text-[#999] hover:text-[#ccc] text-xs font-mono border-t border-[#333] transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <span className="text-[#666]">{logExpanded ? "v" : ">"}</span>
-            Console
-            {unseenLogCount > 0 && (
-              <span className="bg-[#E8913A] text-white text-[10px] px-1.5 py-0.5 font-bold min-w-[18px] text-center">
-                {unseenLogCount}
-              </span>
-            )}
-          </span>
-          <span className="text-[#555]">{logEntries.length} entries</span>
-        </button>
-        {logExpanded && (
-          <div className="h-48 overflow-y-auto bg-[#111] border-t border-[#222] font-mono text-xs p-2 space-y-px">
-            {logEntries.length === 0 && (
-              <p className="text-[#444] py-4 text-center">No log entries yet</p>
-            )}
-            {logEntries.map((entry, i) => (
-              <div
-                key={i}
-                className={`py-0.5 ${
-                  entry.type === "error"
-                    ? "text-red-400"
-                    : entry.type === "capture"
-                    ? "text-green-400"
-                    : entry.type === "replay"
-                    ? "text-blue-400"
-                    : "text-[#888]"
-                }`}
-              >
-                <span className="text-[#555]">
-                  {new Date(entry.timestamp).toLocaleTimeString()}
-                </span>{" "}
-                <span className="text-[#666]">[{entry.type}]</span> {entry.message}
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
-        )}
-      </div>
+      <SandboxConsole
+        entries={logEntries}
+        expanded={logExpanded}
+        onToggle={() => setLogExpanded(!logExpanded)}
+        unseenCount={unseenLogCount}
+      />
 
     </div>
   );
