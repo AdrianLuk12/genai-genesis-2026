@@ -49,13 +49,6 @@ export default function StorefrontLayout({
               <span className="hidden sm:inline">Cart</span>
               <CartBadge />
             </Link>
-            <Link
-              href="/login"
-              data-testid="nav-admin"
-              className="bg-[#008060] text-white px-4 py-2 rounded-lg hover:bg-[#006e52] transition-colors font-medium text-sm shadow-[0_1px_0_rgba(0,0,0,0.05)]"
-            >
-              Supplier Login
-            </Link>
           </div>
         </div>
       </nav>

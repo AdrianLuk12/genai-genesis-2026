@@ -14,18 +14,31 @@ interface CartItem {
   image_url: string;
 }
 
+const SHIPPING_OPTIONS = [
+  { id: "standard", label: "Standard Shipping", time: "5-7 business days", cost: 4.99, freeThreshold: 50 },
+  { id: "express", label: "Express Shipping", time: "2-3 business days", cost: 12.99, freeThreshold: null },
+  { id: "overnight", label: "Overnight Shipping", time: "1 business day", cost: 24.99, freeThreshold: null },
+] as const;
+
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [updatingQty, setUpdatingQty] = useState<number | null>(null);
+  const [shippingMethod, setShippingMethod] = useState<string>("standard");
+  const [dynamicShippingEnabled, setDynamicShippingEnabled] = useState(false);
 
   useEffect(() => {
     fetch("/api/cart")
       .then((r) => r.json())
       .then(setItems)
       .finally(() => setLoading(false));
+
+    fetch("/api/features")
+      .then((r) => r.json())
+      .then((flags) => setDynamicShippingEnabled(flags.dynamicShipping))
+      .catch(() => {});
   }, []);
 
   async function updateQuantity(itemId: number, newQty: number) {
@@ -69,11 +82,20 @@ export default function CartPage() {
     setCheckingOut(false);
   }
 
-  const total = items.reduce(
+  const subtotal = items.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  const effectiveMethod = dynamicShippingEnabled ? shippingMethod : "standard";
+  const selectedShipping = SHIPPING_OPTIONS.find((s) => s.id === effectiveMethod)!;
+  const shippingCost =
+    selectedShipping.freeThreshold && subtotal >= selectedShipping.freeThreshold
+      ? 0
+      : selectedShipping.cost;
+  const tax = subtotal * 0.08;
+  const total = subtotal + shippingCost + tax;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
@@ -130,7 +152,8 @@ export default function CartPage() {
         </div>
       ) : items.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-6">
+            {/* Cart items */}
             <div className="bg-white rounded-xl border border-[#e1e3e5] shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden">
               {items.map((item, idx) => (
                 <div
@@ -156,7 +179,6 @@ export default function CartPage() {
                     <p className="text-sm text-[#6d7175] mt-0.5">${item.price.toFixed(2)} each</p>
                   </div>
 
-                  {/* Quantity controls */}
                   <div className="flex items-center border border-[#e1e3e5] rounded-lg overflow-hidden">
                     <button
                       onClick={() => updateQuantity(item.id, item.quantity - 1)}
@@ -213,9 +235,61 @@ export default function CartPage() {
               ))}
             </div>
 
+            {/* Shipping method selector (feature-flagged) */}
+            {dynamicShippingEnabled && (
+              <div className="bg-white rounded-xl border border-[#e1e3e5] shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-5">
+                <h2 className="font-semibold text-[#202223] mb-3">Shipping Method</h2>
+                <div className="space-y-2">
+                  {SHIPPING_OPTIONS.map((option) => {
+                    const isFree = option.freeThreshold && subtotal >= option.freeThreshold;
+                    return (
+                      <label
+                        key={option.id}
+                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                          shippingMethod === option.id
+                            ? "border-[#008060] bg-[#f1f8f5]"
+                            : "border-[#e1e3e5] hover:border-[#8c9196]"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="shipping"
+                          value={option.id}
+                          checked={shippingMethod === option.id}
+                          onChange={() => setShippingMethod(option.id)}
+                          className="accent-[#008060] w-4 h-4"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-[#202223]">{option.label}</span>
+                            {isFree && (
+                              <span className="text-[10px] font-bold uppercase bg-[#008060] text-white px-1.5 py-0.5 rounded">
+                                Free
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#6d7175] mt-0.5">{option.time}</p>
+                        </div>
+                        <span className="text-sm font-medium text-[#202223]">
+                          {isFree ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="line-through text-[#8c9196]">${option.cost.toFixed(2)}</span>
+                              <span className="text-[#008060]">$0.00</span>
+                            </span>
+                          ) : (
+                            `$${option.cost.toFixed(2)}`
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <Link
               href="/"
-              className="inline-flex items-center gap-2 mt-4 text-[#008060] hover:text-[#006e52] text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 text-[#008060] hover:text-[#006e52] text-sm font-medium transition-colors"
             >
               <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
@@ -224,6 +298,7 @@ export default function CartPage() {
             </Link>
           </div>
 
+          {/* Order Summary */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl border border-[#e1e3e5] shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-5 sticky top-24">
               <h2 className="font-semibold text-[#202223] mb-4">Order Summary</h2>
@@ -231,15 +306,17 @@ export default function CartPage() {
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between text-[#6d7175]">
                   <span>Subtotal ({itemCount} items)</span>
-                  <span className="text-[#202223]">${total.toFixed(2)}</span>
+                  <span className="text-[#202223]">${subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[#6d7175]">
-                  <span>Shipping</span>
-                  <span className="text-[#008060] font-medium">{total >= 50 ? "Free" : "$4.99"}</span>
+                  <span>Shipping ({selectedShipping.label.split(" ")[0]})</span>
+                  <span className={shippingCost === 0 ? "text-[#008060] font-medium" : "text-[#202223]"}>
+                    {shippingCost === 0 ? "Free" : `$${shippingCost.toFixed(2)}`}
+                  </span>
                 </div>
                 <div className="flex justify-between text-[#6d7175]">
                   <span>Tax</span>
-                  <span className="text-[#202223]">${(total * 0.08).toFixed(2)}</span>
+                  <span className="text-[#202223]">${tax.toFixed(2)}</span>
                 </div>
               </div>
 
@@ -247,7 +324,7 @@ export default function CartPage() {
                 <div className="flex justify-between mb-4">
                   <span className="font-semibold text-[#202223]">Total</span>
                   <span className="text-xl font-bold text-[#202223]">
-                    ${(total + (total >= 50 ? 0 : 4.99) + total * 0.08).toFixed(2)}
+                    ${total.toFixed(2)}
                   </span>
                 </div>
 
@@ -261,9 +338,9 @@ export default function CartPage() {
                   {checkingOut ? "Processing..." : "Checkout"}
                 </button>
 
-                {total < 50 && (
+                {effectiveMethod === "standard" && subtotal < 50 && (
                   <p className="text-xs text-[#6d7175] mt-3 text-center">
-                    Add ${(50 - total).toFixed(2)} more for free shipping
+                    Add ${(50 - subtotal).toFixed(2)} more for free shipping
                   </p>
                 )}
               </div>
