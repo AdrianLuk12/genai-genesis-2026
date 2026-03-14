@@ -1,3 +1,3 @@
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return <main className="public-shell">{children}</main>;
+  return <main className="min-h-screen bg-background">{children}</main>;
 }

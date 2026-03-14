@@ -1,202 +1,113 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Users2, Mail, Star, Trash2 } from "lucide-react";
 
 type Candidate = {
-    id: string;
-    name: string;
-    email: string;
-    stage: string;
-    jobId: string;
-    score: number;
+  id: string;
+  name: string;
+  email: string;
+  stage: string;
+  score: number;
 };
 
-type Job = {
-    id: string;
-    title: string;
-};
+export default function AdminCandidatesPage() {
+  const [items, setItems] = useState<Candidate[]>([]);
 
-export default function CandidatesPage() {
-    const [candidates, setCandidates] = useState<Candidate[]>([]);
-    const [jobs, setJobs] = useState<Job[]>([]);
-    const [query, setQuery] = useState("");
-    const [stageFilter, setStageFilter] = useState("All");
-    const [form, setForm] = useState({
-        name: "",
-        email: "",
-        stage: "Applied",
-        jobId: "",
-        score: 75,
+  async function load() {
+    const data = await fetch("/api/candidates").then((res) => res.json());
+    setItems(data);
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, []);
+
+  async function updateStage(id: string, stage: string) {
+    await fetch(`/api/candidates/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage }),
     });
+    load();
+  }
 
-    const loadData = async () => {
-        const [candidateData, jobData] = await Promise.all([
-            fetch("/api/candidates").then((res) => res.json()),
-            fetch("/api/jobs").then((res) => res.json()),
-        ]);
+  async function removeCandidate(id: string) {
+    await fetch(`/api/candidates/${id}`, { method: "DELETE" });
+    load();
+  }
 
-        setCandidates(candidateData);
-        setJobs(jobData);
-        if (!form.jobId && jobData.length > 0) {
-            setForm((prev) => ({ ...prev, jobId: jobData[0].id }));
-        }
-    };
+  return (
+    <div className="space-y-6" data-testid="admin-candidates-page">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Users2 className="w-5 h-5 text-muted-foreground" />
+          Manage Candidates
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Track applicants and move them through the interview pipeline.
+        </p>
+      </div>
 
-    useEffect(() => {
-        loadData();
-    }, []);
+      <div className="space-y-4" data-testid="admin-candidates-table-panel">
+        {items.length === 0 ? (
+          <Card className="p-8 text-center flex flex-col items-center justify-center text-muted-foreground border-dashed">
+            <Users2 className="w-8 h-8 opacity-20 mb-3" />
+            <p className="text-sm">No candidates in the pipeline.</p>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {items.map((candidate) => (
+              <Card key={candidate.id} className="p-5 group hover:border-black/20 transition-all duration-200 shadow-sm border-border/60">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-semibold text-[15px]">{candidate.name}</h3>
+                    <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-1">
+                      <Mail className="w-3.5 h-3.5" />
+                      {candidate.email}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded-md text-[12px] font-medium border border-amber-200/50">
+                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                    {candidate.score}
+                  </div>
+                </div>
 
-    const filteredCandidates = candidates.filter((candidate) => {
-        const matchesQuery =
-            candidate.name.toLowerCase().includes(query.toLowerCase()) ||
-            candidate.email.toLowerCase().includes(query.toLowerCase());
-        const matchesStage = stageFilter === "All" || candidate.stage === stageFilter;
-        return matchesQuery && matchesStage;
-    });
-
-    async function updateStage(id: string, stage: string) {
-        await fetch(`/api/candidates/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stage }),
-        });
-        loadData();
-    }
-
-    async function removeCandidate(id: string) {
-        await fetch(`/api/candidates/${id}`, {
-            method: "DELETE",
-        });
-        loadData();
-    }
-
-    async function onSubmit(event: FormEvent) {
-        event.preventDefault();
-
-        await fetch("/api/candidates", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...form, score: Number(form.score) }),
-        });
-
-        setForm((prev) => ({ ...prev, name: "", email: "", score: 75 }));
-        loadData();
-    }
-
-    return (
-        <section className="stack">
-            <header>
-                <p className="eyebrow-light">Talent funnel management</p>
-                <h2 className="title">Candidates</h2>
-            </header>
-
-            <form className="panel form-grid" onSubmit={onSubmit}>
-                <input
-                    placeholder="Candidate name"
-                    value={form.name}
-                    onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                    required
-                />
-                <input
-                    type="email"
-                    placeholder="Candidate email"
-                    value={form.email}
-                    onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-                    required
-                />
-                <select
-                    value={form.stage}
-                    onChange={(event) => setForm((prev) => ({ ...prev, stage: event.target.value }))}
-                >
-                    <option>Applied</option>
-                    <option>Screening</option>
-                    <option>Interview</option>
-                    <option>Offer</option>
-                    <option>Hired</option>
-                    <option>Rejected</option>
-                </select>
-                <select
-                    value={form.jobId}
-                    onChange={(event) => setForm((prev) => ({ ...prev, jobId: event.target.value }))}
-                >
-                    {jobs.map((job) => (
-                        <option key={job.id} value={job.id}>
-                            {job.title}
-                        </option>
-                    ))}
-                </select>
-                <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.score}
-                    onChange={(event) => setForm((prev) => ({ ...prev, score: Number(event.target.value) }))}
-                />
-                <button type="submit">Add Candidate</button>
-            </form>
-
-            <section className="panel toolbar">
-                <input
-                    placeholder="Search by name or email"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                />
-                <select
-                    value={stageFilter}
-                    onChange={(event) => setStageFilter(event.target.value)}
-                >
-                    <option>All</option>
-                    <option>Applied</option>
-                    <option>Screening</option>
-                    <option>Interview</option>
-                    <option>Offer</option>
-                    <option>Hired</option>
-                    <option>Rejected</option>
-                </select>
-            </section>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Stage</th>
-                        <th>Score</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {filteredCandidates.map((candidate) => (
-                        <tr key={candidate.id}>
-                            <td>{candidate.name}</td>
-                            <td>{candidate.email}</td>
-                            <td>
-                                <select
-                                    value={candidate.stage}
-                                    onChange={(event) => updateStage(candidate.id, event.target.value)}
-                                >
-                                    <option>Applied</option>
-                                    <option>Screening</option>
-                                    <option>Interview</option>
-                                    <option>Offer</option>
-                                    <option>Hired</option>
-                                    <option>Rejected</option>
-                                </select>
-                            </td>
-                            <td>{candidate.score}</td>
-                            <td>
-                                <button
-                                    type="button"
-                                    className="danger-btn"
-                                    onClick={() => removeCandidate(candidate.id)}
-                                >
-                                    Remove
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </section>
-    );
+                <div className="pt-4 border-t border-border/50 mt-4 flex items-center justify-between">
+                  <div className="flex-1 mr-4">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Pipeline Stage</label>
+                    <select 
+                      value={candidate.stage} 
+                      onChange={(e) => updateStage(candidate.id, e.target.value)}
+                      className="w-full text-[13px] bg-muted/30 border border-border/50 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-black/20"
+                      data-testid={`candidate-stage-select-${candidate.id}`}
+                    >
+                      <option>Applied</option>
+                      <option>Screening</option>
+                      <option>Interview</option>
+                      <option>Offer</option>
+                      <option>Hired</option>
+                      <option>Rejected</option>
+                    </select>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => removeCandidate(candidate.id)} 
+                    className="text-muted-foreground hover:text-red-600 hover:bg-red-50 mt-5 h-8 w-8"
+                    data-testid={`candidate-remove-${candidate.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
