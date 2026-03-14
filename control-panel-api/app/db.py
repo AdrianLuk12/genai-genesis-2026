@@ -7,8 +7,11 @@ import ibm_db_dbi
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 DB_PATH = os.path.join(DATA_DIR, "platform.db")
 FILES_DIR = os.path.join(DATA_DIR, "scenario_files")
-DB_PROVIDER = os.getenv("DB_PROVIDER", "sqlite").strip().lower()
 CERTS_DIR = os.path.join(DATA_DIR, "certs")
+
+
+def _get_db_provider() -> str:
+    return os.getenv("DB_PROVIDER", "sqlite").strip().lower()
 
 
 class ResultAdapter:
@@ -102,7 +105,8 @@ def _resolve_db2_ssl_ca_file() -> str:
 
 
 def _table_exists_db2(conn, table_name: str) -> bool:
-    row = conn.execute(
+    cursor = conn.cursor()
+    cursor.execute(
         """
         SELECT 1
         FROM SYSCAT.TABLES
@@ -111,12 +115,15 @@ def _table_exists_db2(conn, table_name: str) -> bool:
         FETCH FIRST 1 ROWS ONLY
         """,
         (table_name.upper(),),
-    ).fetchone()
+    )
+    row = cursor.fetchone()
+    cursor.close()
     return row is not None
 
 
 def _column_exists_db2(conn, table_name: str, column_name: str) -> bool:
-    row = conn.execute(
+    cursor = conn.cursor()
+    cursor.execute(
         """
         SELECT 1
         FROM SYSCAT.COLUMNS
@@ -126,7 +133,9 @@ def _column_exists_db2(conn, table_name: str, column_name: str) -> bool:
         FETCH FIRST 1 ROWS ONLY
         """,
         (table_name.upper(), column_name.upper()),
-    ).fetchone()
+    )
+    row = cursor.fetchone()
+    cursor.close()
     return row is not None
 
 
@@ -168,12 +177,13 @@ def _init_sqlite_db():
 def _init_db2_db():
     dsn = _get_db2_dsn()
     conn = ibm_db_dbi.connect(dsn, "", "")
+    cursor = conn.cursor()
 
     if not _table_exists_db2(conn, "scenarios"):
-        conn.execute(
+        cursor.execute(
             """
             CREATE TABLE scenarios (
-                id VARCHAR(64) PRIMARY KEY,
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
                 description CLOB(1M) DEFAULT '',
                 config_json CLOB(1M) DEFAULT '{}',
@@ -185,10 +195,10 @@ def _init_db2_db():
         )
 
     if not _table_exists_db2(conn, "active_containers"):
-        conn.execute(
+        cursor.execute(
             """
             CREATE TABLE active_containers (
-                id VARCHAR(64) PRIMARY KEY,
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
                 scenario_id VARCHAR(64),
                 container_id VARCHAR(128) NOT NULL UNIQUE,
                 port INTEGER NOT NULL,
@@ -200,9 +210,10 @@ def _init_db2_db():
         )
 
     if not _column_exists_db2(conn, "active_containers", "name"):
-        conn.execute("ALTER TABLE active_containers ADD COLUMN name VARCHAR(255)")
+        cursor.execute("ALTER TABLE active_containers ADD COLUMN name VARCHAR(255)")
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
@@ -210,7 +221,7 @@ def init_db():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(FILES_DIR, exist_ok=True)
 
-    if DB_PROVIDER == "db2":
+    if _get_db_provider() == "db2":
         _init_db2_db()
         return
 
@@ -218,7 +229,7 @@ def init_db():
 
 
 def get_db() -> DBAdapter:
-    if DB_PROVIDER == "db2":
+    if _get_db_provider() == "db2":
         dsn = _get_db2_dsn()
         return DBAdapter(ibm_db_dbi.connect(dsn, "", ""))
 

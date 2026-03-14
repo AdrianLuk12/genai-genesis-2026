@@ -14,9 +14,9 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.db import init_db, get_db, FILES_DIR
-
 load_dotenv()
+
+from app.db import init_db, get_db, FILES_DIR
 
 app = FastAPI(title="Sandbox Platform API")
 

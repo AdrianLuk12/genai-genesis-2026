@@ -31,13 +31,11 @@ class DbModuleTests(unittest.TestCase):
         self.original_db_path = db.DB_PATH
         self.original_files_dir = db.FILES_DIR
         self.original_certs_dir = db.CERTS_DIR
-        self.original_db_provider = db.DB_PROVIDER
 
         db.DATA_DIR = self.temp_dir.name
         db.DB_PATH = os.path.join(self.temp_dir.name, "platform.db")
         db.FILES_DIR = os.path.join(self.temp_dir.name, "scenario_files")
         db.CERTS_DIR = os.path.join(self.temp_dir.name, "certs")
-        db.DB_PROVIDER = "sqlite"
 
         self.addCleanup(self._restore_module_paths)
 
@@ -46,10 +44,10 @@ class DbModuleTests(unittest.TestCase):
         db.DB_PATH = self.original_db_path
         db.FILES_DIR = self.original_files_dir
         db.CERTS_DIR = self.original_certs_dir
-        db.DB_PROVIDER = self.original_db_provider
 
     def test_init_db_sqlite_creates_expected_tables_and_column(self):
-        db.init_db()
+        with patch.dict(os.environ, {"DB_PROVIDER": "sqlite"}, clear=False):
+            db.init_db()
 
         conn = sqlite3.connect(db.DB_PATH)
         try:
@@ -167,14 +165,13 @@ class DbModuleTests(unittest.TestCase):
             self.assertEqual(cert_file.read(), cert_bytes)
 
     def test_get_db_returns_sqlite_adapter_by_default(self):
-        db.DB_PROVIDER = "sqlite"
-
-        conn_adapter = db.get_db()
-        try:
-            result = conn_adapter.execute("SELECT 1 AS value").fetchone()
-            self.assertEqual(result["value"], 1)
-        finally:
-            conn_adapter.close()
+        with patch.dict(os.environ, {"DB_PROVIDER": "sqlite"}, clear=False):
+            conn_adapter = db.get_db()
+            try:
+                result = conn_adapter.execute("SELECT 1 AS value").fetchone()
+                self.assertEqual(result["value"], 1)
+            finally:
+                conn_adapter.close()
 
 
 if __name__ == "__main__":
