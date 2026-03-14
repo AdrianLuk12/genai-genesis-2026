@@ -143,6 +143,38 @@ async def create_scenario(body: ScenarioCreate):
     return row_to_dict(row)
 
 
+class ScenarioUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@app.patch("/api/scenarios/{scenario_id}")
+async def update_scenario(scenario_id: str, body: ScenarioUpdate):
+    db = get_db()
+    row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    updates = []
+    params = []
+    if body.name is not None:
+        updates.append("name = ?")
+        params.append(body.name)
+    if body.description is not None:
+        updates.append("description = ?")
+        params.append(body.description)
+
+    if updates:
+        params.append(scenario_id)
+        db.execute(f"UPDATE scenarios SET {', '.join(updates)} WHERE id = ?", params)
+        db.commit()
+
+    row = db.execute("SELECT * FROM scenarios WHERE id = ?", (scenario_id,)).fetchone()
+    db.close()
+    return row_to_dict(row)
+
+
 @app.delete("/api/scenarios/{scenario_id}")
 async def delete_scenario(scenario_id: str):
     db = get_db()
@@ -262,6 +294,34 @@ async def list_sandboxes():
     rows = db.execute("SELECT * FROM active_containers").fetchall()
     db.close()
     return [dict(r) for r in rows]
+
+
+class SandboxUpdate(BaseModel):
+    name: str | None = None
+
+
+@app.patch("/api/sandboxes/{container_id}")
+async def update_sandbox(container_id: str, body: SandboxUpdate):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM active_containers WHERE container_id = ?", (container_id,)
+    ).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+
+    # Treat empty string as NULL (clear the name)
+    name_val = body.name if body.name else None
+    db.execute(
+        "UPDATE active_containers SET name = ? WHERE container_id = ?",
+        (name_val, container_id),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM active_containers WHERE container_id = ?", (container_id,)
+    ).fetchone()
+    db.close()
+    return dict(row)
 
 
 @app.delete("/api/sandboxes/{container_id}")

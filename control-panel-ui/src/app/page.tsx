@@ -13,6 +13,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
+import { useEditName } from "@/components/ui/edit-name-modal";
+import { Pencil } from "lucide-react";
 
 interface Sandbox {
   id: string;
@@ -22,6 +24,7 @@ interface Sandbox {
   sandbox_url: string;
   status: string;
   created_at: string;
+  name: string | null;
 }
 
 interface Scenario {
@@ -51,6 +54,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
   const { confirm } = useConfirm();
+  const editName = useEditName();
 
   useEffect(() => {
     Promise.all([api("/api/sandboxes"), api("/api/scenarios")])
@@ -83,6 +87,28 @@ export default function DashboardPage() {
     if (!ok) return;
     await api(`/api/sandboxes/${containerId}/save`, { method: "POST" });
     setSandboxes(sandboxes.filter((s) => s.container_id !== containerId));
+  }
+
+  async function renameSandbox(containerId: string, currentName: string) {
+    const newName = await editName({
+      title: "Rename Sandbox",
+      currentName,
+    });
+    if (newName === null) return;
+    const prev = sandboxes.map((s) => ({ ...s }));
+    setSandboxes((sbs) =>
+      sbs.map((s) =>
+        s.container_id === containerId ? { ...s, name: newName || null } : s
+      )
+    );
+    try {
+      await api(`/api/sandboxes/${containerId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: newName }),
+      });
+    } catch {
+      setSandboxes(prev);
+    }
   }
 
   async function launchSandbox(scenarioId: string) {
@@ -150,10 +176,17 @@ export default function DashboardPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-lg font-semibold flex items-center gap-2">
                     <span className="size-2 bg-green-500/70 inline-block" />
-                    :{sb.port}
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors duration-200 text-left"
+                      onClick={() => renameSandbox(sb.container_id, sb.name || "")}
+                    >
+                      {sb.name || `Sandbox :${sb.port}`}
+                      <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity duration-200" />
+                    </button>
                   </CardTitle>
                   <CardDescription className="text-xs font-mono text-muted-foreground">
-                    {sb.container_id.substring(0, 12)}
+                    :{sb.port} / {sb.container_id.substring(0, 12)}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

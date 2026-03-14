@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Syne } from "next/font/google";
 import Link from "next/link";
 import { ConfirmProvider } from "@/components/ui/confirm-modal";
+import { EditProvider } from "@/components/ui/edit-name-modal";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,6 +32,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${syne.variable} font-sans antialiased`}
       >
         <ConfirmProvider>
+        <EditProvider>
           <nav className="sticky top-0 z-50 bg-[#F9F8F6]/70 backdrop-blur-xl border-b border-border/50 px-8 py-4 flex items-center gap-8">
             <Link href="/" className="font-display font-bold text-xl tracking-tight mr-2">
               SANDBOX
@@ -53,6 +55,7 @@ export default function RootLayout({
             </div>
           </nav>
           <main className="max-w-6xl mx-auto px-8 py-8">{children}</main>
+        </EditProvider>
         </ConfirmProvider>
       </body>
     </html>

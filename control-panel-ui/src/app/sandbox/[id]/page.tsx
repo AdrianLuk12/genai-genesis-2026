@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useConfirm } from "@/components/ui/confirm-modal";
+import { useEditName } from "@/components/ui/edit-name-modal";
+import { Pencil } from "lucide-react";
 
 interface Sandbox {
   id: string;
@@ -20,6 +22,7 @@ interface Sandbox {
   sandbox_url: string;
   status: string;
   created_at: string;
+  name: string | null;
 }
 
 const LOADING_MESSAGES = [
@@ -91,6 +94,7 @@ export default function SandboxViewPage() {
   const containerId = params.id as string;
 
   const { confirm } = useConfirm();
+  const editName = useEditName();
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -130,6 +134,25 @@ export default function SandboxViewPage() {
   }, [sandbox, pollKey]);
 
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
+
+  async function renameSandbox() {
+    if (!sandbox) return;
+    const newName = await editName({
+      title: "Rename Sandbox",
+      currentName: sandbox.name || "",
+    });
+    if (newName === null) return;
+    const prev = { ...sandbox };
+    setSandbox((s) => (s ? { ...s, name: newName || null } : s));
+    try {
+      await api(`/api/sandboxes/${containerId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: newName }),
+      });
+    } catch {
+      setSandbox(prev);
+    }
+  }
 
   async function saveState() {
     const ok = await confirm({
@@ -194,12 +217,19 @@ export default function SandboxViewPage() {
     <div className="animate-fade-in-up space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between animate-slide-in-left">
-        <div>
-          <h1 className="font-display font-bold text-2xl tracking-tight">
-            Sandbox :{sandbox.port}
-          </h1>
+        <div className="group">
+          <button
+            type="button"
+            className="flex items-center gap-2 hover:text-foreground/70 transition-colors duration-200"
+            onClick={renameSandbox}
+          >
+            <h1 className="font-display font-bold text-2xl tracking-tight">
+              {sandbox.name || `Sandbox :${sandbox.port}`}
+            </h1>
+            <Pencil className="size-3.5 opacity-0 group-hover:opacity-50 transition-opacity duration-200 mt-1" />
+          </button>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-            {sandbox.container_id.substring(0, 12)}
+            :{sandbox.port} / {sandbox.container_id.substring(0, 12)}
           </p>
         </div>
         <div className="flex gap-2">

@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-modal";
+import { useEditScenario } from "@/components/ui/edit-name-modal";
+import { Pencil } from "lucide-react";
 
 interface Scenario {
   id: string;
@@ -75,6 +77,7 @@ export default function ScenariosPage() {
   const [description, setDescription] = useState("");
   const [configJson, setConfigJson] = useState("{}");
   const { confirm } = useConfirm();
+  const editScenario = useEditScenario();
 
   useEffect(() => {
     loadScenarios();
@@ -128,6 +131,31 @@ export default function ScenariosPage() {
     }
   }
 
+  async function renameScenario(sc: Scenario) {
+    const result = await editScenario({
+      title: "Edit Scenario",
+      currentName: sc.name,
+      currentDescription: sc.description,
+    });
+    if (!result) return;
+    const prev = scenarios.map((s) => ({ ...s }));
+    setScenarios((scs) =>
+      scs.map((s) =>
+        s.id === sc.id
+          ? { ...s, name: result.name || s.name, description: result.description }
+          : s
+      )
+    );
+    try {
+      await api(`/api/scenarios/${sc.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: result.name, description: result.description }),
+      });
+    } catch {
+      setScenarios(prev);
+    }
+  }
+
   async function deleteScenario(id: string) {
     const ok = await confirm({
       title: "Delete Scenario",
@@ -170,7 +198,7 @@ export default function ScenariosPage() {
 
       {/* Create form */}
       {showForm && (
-        <Card className="border-border animate-fade-in-scale bg-card/80 backdrop-blur-sm">
+        <Card className="border-border animate-fade-in-scale bg-card/80 backdrop-blur-sm" style={{ animationDelay: "80ms" }}>
           <CardHeader>
             <CardTitle className="font-display font-semibold">Create Scenario</CardTitle>
           </CardHeader>
@@ -221,7 +249,7 @@ export default function ScenariosPage() {
 
       {/* Scenario list */}
       {scenarios.length === 0 ? (
-        <div className="border border-dashed border-border py-16 flex flex-col items-center gap-3 animate-fade-in">
+        <div className="border border-dashed border-border py-16 flex flex-col items-center gap-3 animate-fade-in-up" style={{ animationDelay: "120ms" }}>
           <p className="text-sm text-muted-foreground animate-breathing">
             No scenarios yet
           </p>
@@ -230,17 +258,24 @@ export default function ScenariosPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in-up" style={{ animationDelay: "120ms" }}>
           {scenarios.map((sc, i) => (
             <Card
               key={sc.id}
               className="relative animate-fade-in-scale border-border group transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:-translate-y-px"
-              style={{ animationDelay: `${i * 60}ms` }}
+              style={{ animationDelay: `${120 + i * 60}ms` }}
             >
               {launching === sc.id && <LaunchOverlay />}
               <CardHeader className="pb-2">
                 <CardTitle className="font-display text-lg font-semibold">
-                  {sc.name}
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors duration-200 text-left"
+                    onClick={() => renameScenario(sc)}
+                  >
+                    {sc.name}
+                    <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity duration-200" />
+                  </button>
                 </CardTitle>
                 <CardDescription className="text-xs">
                   {sc.description || "No description"}
