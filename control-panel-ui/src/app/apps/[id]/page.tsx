@@ -95,6 +95,7 @@ export default function AppDetailPage() {
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [versionTag, setVersionTag] = useState("");
+  const [dataPath, setDataPath] = useState("");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -252,6 +253,9 @@ export default function AppDetailPage() {
       const formData = new FormData();
       formData.append("file", uploadFile);
       formData.append("version_tag", versionTag);
+      if (dataPath.trim()) {
+        formData.append("data_path", dataPath.trim());
+      }
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${API_URL}/api/apps/${appId}/versions`);
@@ -277,6 +281,7 @@ export default function AppDetailPage() {
       });
       setUploadFile(null);
       setVersionTag("");
+      setDataPath("");
       setShowUploadForm(false);
       setUploadProgress(0);
       loadVersions();
@@ -634,6 +639,21 @@ export default function AppDetailPage() {
                   placeholder="e.g. v1.0.0"
                   disabled={uploading}
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  Data Path
+                </label>
+                <Input
+                  value={dataPath}
+                  onChange={(e) => setDataPath(e.target.value)}
+                  placeholder="/app/data"
+                  disabled={uploading}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Container directory to save/restore state from. Defaults to /app/data.
+                </p>
               </div>
 
               {uploading && (
