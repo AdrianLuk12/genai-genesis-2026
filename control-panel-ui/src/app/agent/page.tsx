@@ -22,21 +22,42 @@ interface Scenario {
   id: string;
   name: string;
   description: string;
+  app_version_id: string | null;
+}
+
+interface App {
+  id: string;
+  name: string;
+}
+
+interface AppVersion {
+  id: string;
+  app_id: string;
+  version_tag: string;
 }
 
 export default function AgentPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [apps, setApps] = useState<App[]>([]);
+  const [versions, setVersions] = useState<AppVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState("");
   const [intent, setIntent] = useState("");
 
   useEffect(() => {
-    Promise.all([api("/api/sandboxes"), api("/api/scenarios")])
-      .then(([sbs, scs]) => {
+    Promise.all([api("/api/sandboxes"), api("/api/scenarios"), api("/api/apps")])
+      .then(async ([sbs, scs, aps]) => {
         setSandboxes(sbs);
         setScenarios(scs);
+        setApps(aps);
+        const allVersions: AppVersion[] = [];
+        for (const app of aps) {
+          const vers = await api(`/api/apps/${app.id}/versions`);
+          allVersions.push(...vers);
+        }
+        setVersions(allVersions);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -88,11 +109,31 @@ export default function AgentPage() {
             onChange={(e) => setSelectedScenario(e.target.value)}
           >
             <option value="">Select a scenario...</option>
-            {scenarios.map((sc) => (
-              <option key={sc.id} value={sc.id}>
-                {sc.name} {sc.description ? `— ${sc.description}` : ""}
-              </option>
-            ))}
+            {apps.map((app) => {
+              const appVersions = versions.filter((v) => v.app_id === app.id);
+              return appVersions.map((ver) => {
+                const verScenarios = scenarios.filter((s) => s.app_version_id === ver.id);
+                if (verScenarios.length === 0) return null;
+                return (
+                  <optgroup key={ver.id} label={`${app.name} — ${ver.version_tag}`}>
+                    {verScenarios.map((sc) => (
+                      <option key={sc.id} value={sc.id}>
+                        {sc.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              });
+            })}
+            {scenarios.filter((s) => !s.app_version_id).length > 0 && (
+              <optgroup label="Unscoped Scenarios">
+                {scenarios.filter((s) => !s.app_version_id).map((sc) => (
+                  <option key={sc.id} value={sc.id}>
+                    {sc.name} {sc.description ? `— ${sc.description}` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 

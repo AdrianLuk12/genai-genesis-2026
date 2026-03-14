@@ -1,0 +1,829 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useConfirm } from "@/components/ui/confirm-modal";
+import { useEditScenario } from "@/components/ui/edit-name-modal";
+import {
+  ArrowLeft,
+  Box,
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+  Play,
+  Plus,
+  Trash2,
+  Pencil,
+  Upload,
+  X,
+  Workflow,
+} from "lucide-react";
+import Link from "next/link";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+interface App {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+interface AppVersion {
+  id: string;
+  version_tag: string;
+  docker_image_name: string;
+  created_at: string;
+}
+
+interface Scenario {
+  id: string;
+  name: string;
+  description: string;
+  config_json: Record<string, unknown>;
+  created_at: string;
+  app_version_id: string | null;
+}
+
+interface WorkflowEntry {
+  id: string;
+  name: string;
+  steps_json: unknown[];
+  scenario_id: string;
+  created_at: string;
+}
+
+function LaunchOverlay() {
+  const [msgIndex, setMsgIndex] = useState(0);
+  const msgs = ["Provisioning sandbox", "Starting container", "Almost ready"];
+
+  useEffect(() => {
+    const t = setInterval(() => setMsgIndex((i) => Math.min(i + 1, msgs.length - 1)), 3000);
+    return () => clearInterval(t);
+  }, [msgs.length]);
+
+  return (
+    <div className="absolute inset-0 z-10 bg-card/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 animate-fade-in rounded-none">
+      <div className="w-24 h-1 bg-border relative overflow-hidden">
+        <div className="absolute inset-y-0 left-0 bg-onyx-green animate-progress-fill" />
+      </div>
+      <p
+        key={msgIndex}
+        className="text-xs text-muted-foreground animate-fade-in"
+      >
+        {msgs[msgIndex]}
+        <span className="dot-loading">
+          <span className="inline-block">.</span>
+          <span className="inline-block">.</span>
+          <span className="inline-block">.</span>
+        </span>
+      </p>
+    </div>
+  );
+}
+
+export default function AppDetailPage() {
+  const params = useParams();
+  const appId = params.id as string;
+
+  const [app, setApp] = useState<App | null>(null);
+  const [versions, setVersions] = useState<AppVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [versionTag, setVersionTag] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  // Per-version expanded state
+  const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+
+  // Per-version scenarios & workflows
+  const [versionScenarios, setVersionScenarios] = useState<Record<string, Scenario[]>>({});
+  const [versionWorkflows, setVersionWorkflows] = useState<Record<string, WorkflowEntry[]>>({});
+
+  // Per-version create scenario form
+  const [showScenarioForm, setShowScenarioForm] = useState<Record<string, boolean>>({});
+  const [scenarioName, setScenarioName] = useState("");
+  const [scenarioDescription, setScenarioDescription] = useState("");
+  const [scenarioConfigJson, setScenarioConfigJson] = useState("{}");
+
+  const [launching, setLaunching] = useState<string | null>(null);
+
+  const { confirm } = useConfirm();
+  const editScenario = useEditScenario();
+
+  const loadApp = useCallback(async () => {
+    try {
+      const data = await api(`/api/apps/${appId}`);
+      setApp(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [appId]);
+
+  const loadVersions = useCallback(async () => {
+    try {
+      const data = await api(`/api/apps/${appId}/versions`);
+      setVersions(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [appId]);
+
+  useEffect(() => {
+    async function init() {
+      setLoading(true);
+      await Promise.all([loadApp(), loadVersions()]);
+      setLoading(false);
+    }
+    init();
+  }, [loadApp, loadVersions]);
+
+  function toggleVersion(versionId: string) {
+    setExpandedVersions((prev) => {
+      const next = { ...prev, [versionId]: !prev[versionId] };
+      if (next[versionId]) {
+        loadVersionScenarios(versionId);
+        loadVersionWorkflows(versionId);
+      }
+      return next;
+    });
+  }
+
+  async function loadVersionScenarios(versionId: string) {
+    try {
+      const data = await api(`/api/scenarios?app_version_id=${versionId}`);
+      setVersionScenarios((prev) => ({ ...prev, [versionId]: data }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadVersionWorkflows(versionId: string) {
+    try {
+      const data = await api(`/api/workflows?app_version_id=${versionId}`);
+      setVersionWorkflows((prev) => ({ ...prev, [versionId]: data }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function renameApp() {
+    if (!app) return;
+    const result = await editScenario({
+      title: "Edit App",
+      currentName: app.name,
+      currentDescription: app.description,
+    });
+    if (!result) return;
+    const prev = { ...app };
+    setApp({ ...app, name: result.name || app.name, description: result.description });
+    try {
+      await api(`/api/apps/${appId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: result.name, description: result.description }),
+      });
+    } catch {
+      setApp(prev);
+    }
+  }
+
+  async function deleteApp() {
+    const ok = await confirm({
+      title: "Delete App",
+      description:
+        "This app and all its versions will be permanently removed. Any sandboxes launched from it will not be affected.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    await api(`/api/apps/${appId}`, { method: "DELETE" });
+    window.location.href = "/apps";
+  }
+
+  async function uploadVersion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!uploadFile) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+      formData.append("version_tag", versionTag);
+      const res = await fetch(`${API_URL}/api/apps/${appId}/versions`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Upload failed: ${res.status}`);
+      }
+      setUploadFile(null);
+      setVersionTag("");
+      setShowUploadForm(false);
+      loadVersions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteVersion(versionId: string) {
+    const ok = await confirm({
+      title: "Delete Version",
+      description:
+        "This version will be permanently removed. Any sandboxes launched from it will not be affected.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    await api(`/api/apps/${appId}/versions/${versionId}`, { method: "DELETE" });
+    setVersions(versions.filter((v) => v.id !== versionId));
+  }
+
+  async function createScenario(e: React.FormEvent, versionId: string) {
+    e.preventDefault();
+    try {
+      const parsed = JSON.parse(scenarioConfigJson);
+      await api("/api/scenarios", {
+        method: "POST",
+        body: JSON.stringify({
+          name: scenarioName,
+          description: scenarioDescription,
+          config_json: parsed,
+          app_version_id: versionId,
+        }),
+      });
+      setScenarioName("");
+      setScenarioDescription("");
+      setScenarioConfigJson("{}");
+      setShowScenarioForm((prev) => ({ ...prev, [versionId]: false }));
+      loadVersionScenarios(versionId);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create scenario");
+    }
+  }
+
+  async function deleteScenario(scenarioId: string, versionId: string) {
+    const ok = await confirm({
+      title: "Delete Scenario",
+      description:
+        "This scenario will be permanently removed. Any sandboxes launched from it will not be affected.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    await api(`/api/scenarios/${scenarioId}`, { method: "DELETE" });
+    setVersionScenarios((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).filter((s) => s.id !== scenarioId),
+    }));
+  }
+
+  async function launchSandbox(scenarioId: string) {
+    setLaunching(scenarioId);
+    try {
+      const result = await api("/api/sandboxes", {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: scenarioId }),
+      });
+      window.location.href = `/sandbox/${result.container_id}`;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Launch failed");
+      setLaunching(null);
+    }
+  }
+
+  async function deleteWorkflow(workflowId: string, versionId: string) {
+    const ok = await confirm({
+      title: "Delete Workflow",
+      description:
+        "This workflow will be permanently removed.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    await api(`/api/workflows/${workflowId}`, { method: "DELETE" });
+    setVersionWorkflows((prev) => ({
+      ...prev,
+      [versionId]: (prev[versionId] || []).filter((w) => w.id !== workflowId),
+    }));
+  }
+
+  async function replayWorkflow(workflow: WorkflowEntry) {
+    setLaunching(workflow.scenario_id);
+    try {
+      const result = await api("/api/sandboxes", {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: workflow.scenario_id }),
+      });
+      window.location.href = `/sandbox/${result.container_id}?workflow=${workflow.id}`;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Launch failed");
+      setLaunching(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="h-6 w-24 skeleton-block" />
+        <div className="h-8 w-64 skeleton-block" />
+        <div className="h-12 skeleton-block" />
+        <div className="h-64 skeleton-block" />
+      </div>
+    );
+  }
+
+  if (!app) {
+    return (
+      <div className="space-y-6">
+        <Link href="/apps">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="size-4" />
+            Back to Apps
+          </Button>
+        </Link>
+        <div className="py-16 flex flex-col items-center gap-3">
+          <Box className="size-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">App not found</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Back button */}
+      <div className="animate-fade-in">
+        <Link href="/apps">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="size-4" />
+            Back to Apps
+          </Button>
+        </Link>
+      </div>
+
+      {/* App header */}
+      <div className="flex items-start justify-between animate-fade-in-up">
+        <div>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-2xl font-semibold hover:text-onyx-green transition-colors group"
+            onClick={renameApp}
+          >
+            {app.name}
+            <Pencil className="size-4 opacity-0 group-hover:opacity-50 transition-opacity" />
+          </button>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {app.description || "No description"}
+          </p>
+        </div>
+        <Button variant="destructive" size="sm" onClick={deleteApp}>
+          <Trash2 className="size-4" />
+          Delete App
+        </Button>
+      </div>
+
+      {/* Versions section */}
+      <div className="space-y-4 animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Versions</h2>
+          <Button
+            variant={showUploadForm ? "outline" : "onyx"}
+            size="sm"
+            onClick={() => setShowUploadForm(!showUploadForm)}
+          >
+            {showUploadForm ? (
+              <>
+                <X className="size-4" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Upload className="size-4" />
+                Upload New Version
+              </>
+            )}
+          </Button>
+        </div>
+
+        {/* Upload form */}
+        {showUploadForm && (
+          <div className="bg-card rounded-none border border-border p-6 animate-fade-in-scale">
+            <h3 className="font-semibold mb-4">Upload Version</h3>
+            <form onSubmit={uploadVersion} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  Docker Image (.tar)
+                </label>
+                <Input
+                  type="file"
+                  accept=".tar"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  Version Tag
+                </label>
+                <Input
+                  value={versionTag}
+                  onChange={(e) => setVersionTag(e.target.value)}
+                  required
+                  placeholder="e.g. v1.0.0"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" variant="onyx" disabled={uploading}>
+                  {uploading ? "Uploading..." : "Upload"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Versions table */}
+        <div className="bg-card rounded-none border border-border overflow-hidden">
+          {versions.length === 0 ? (
+            <div className="py-16 flex flex-col items-center gap-3">
+              <Box className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No versions yet</p>
+              <p className="text-xs text-muted-foreground/60">
+                Upload a Docker image to get started
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground w-8" />
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Version Tag</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Docker Image</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">Created</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map((ver) => {
+                  const isExpanded = expandedVersions[ver.id] ?? false;
+                  const scenarios = versionScenarios[ver.id] || [];
+                  const workflows = versionWorkflows[ver.id] || [];
+                  const showingScenarioForm = showScenarioForm[ver.id] ?? false;
+
+                  return (
+                    <VersionRow
+                      key={ver.id}
+                      version={ver}
+                      isExpanded={isExpanded}
+                      scenarios={scenarios}
+                      workflows={workflows}
+                      showingScenarioForm={showingScenarioForm}
+                      scenarioName={scenarioName}
+                      scenarioDescription={scenarioDescription}
+                      scenarioConfigJson={scenarioConfigJson}
+                      launching={launching}
+                      onToggle={() => toggleVersion(ver.id)}
+                      onDeleteVersion={() => deleteVersion(ver.id)}
+                      onToggleScenarioForm={() => {
+                        setShowScenarioForm((prev) => ({ ...prev, [ver.id]: !prev[ver.id] }));
+                        setScenarioName("");
+                        setScenarioDescription("");
+                        setScenarioConfigJson("{}");
+                      }}
+                      onScenarioNameChange={setScenarioName}
+                      onScenarioDescriptionChange={setScenarioDescription}
+                      onScenarioConfigJsonChange={setScenarioConfigJson}
+                      onCreateScenario={(e) => createScenario(e, ver.id)}
+                      onDeleteScenario={(scenarioId) => deleteScenario(scenarioId, ver.id)}
+                      onLaunchSandbox={launchSandbox}
+                      onDeleteWorkflow={(workflowId) => deleteWorkflow(workflowId, ver.id)}
+                      onReplayWorkflow={replayWorkflow}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Version Row Component ── */
+
+interface VersionRowProps {
+  version: AppVersion;
+  isExpanded: boolean;
+  scenarios: Scenario[];
+  workflows: WorkflowEntry[];
+  showingScenarioForm: boolean;
+  scenarioName: string;
+  scenarioDescription: string;
+  scenarioConfigJson: string;
+  launching: string | null;
+  onToggle: () => void;
+  onDeleteVersion: () => void;
+  onToggleScenarioForm: () => void;
+  onScenarioNameChange: (v: string) => void;
+  onScenarioDescriptionChange: (v: string) => void;
+  onScenarioConfigJsonChange: (v: string) => void;
+  onCreateScenario: (e: React.FormEvent) => void;
+  onDeleteScenario: (scenarioId: string) => void;
+  onLaunchSandbox: (scenarioId: string) => void;
+  onDeleteWorkflow: (workflowId: string) => void;
+  onReplayWorkflow: (workflow: WorkflowEntry) => void;
+}
+
+function VersionRow({
+  version,
+  isExpanded,
+  scenarios,
+  workflows,
+  showingScenarioForm,
+  scenarioName,
+  scenarioDescription,
+  scenarioConfigJson,
+  launching,
+  onToggle,
+  onDeleteVersion,
+  onToggleScenarioForm,
+  onScenarioNameChange,
+  onScenarioDescriptionChange,
+  onScenarioConfigJsonChange,
+  onCreateScenario,
+  onDeleteScenario,
+  onLaunchSandbox,
+  onDeleteWorkflow,
+  onReplayWorkflow,
+}: VersionRowProps) {
+  return (
+    <>
+      <tr className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+        <td className="py-3 px-4">
+          <button type="button" onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors">
+            {isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          </button>
+        </td>
+        <td className="py-3 px-4 font-medium">{version.version_tag}</td>
+        <td className="py-3 px-4">
+          <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5">
+            {version.docker_image_name}
+          </code>
+        </td>
+        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+          {new Date(version.created_at).toLocaleDateString()}
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onDeleteVersion}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              title="Delete version"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        </td>
+      </tr>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <tr>
+          <td colSpan={5} className="p-0">
+            <div className="bg-muted/10 border-t border-border/30 px-8 py-6 space-y-6">
+
+              {/* Scenarios sub-section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                    <FlaskConical className="size-4 text-muted-foreground" />
+                    Scenarios
+                  </h4>
+                  <Button
+                    variant={showingScenarioForm ? "outline" : "onyx"}
+                    size="xs"
+                    onClick={onToggleScenarioForm}
+                  >
+                    {showingScenarioForm ? (
+                      <>
+                        <X className="size-3" />
+                        Cancel
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="size-3" />
+                        New Scenario
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Create scenario form */}
+                {showingScenarioForm && (
+                  <div className="bg-card rounded-none border border-border p-4 animate-fade-in-scale">
+                    <form onSubmit={onCreateScenario} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                          Name
+                        </label>
+                        <Input
+                          value={scenarioName}
+                          onChange={(e) => onScenarioNameChange(e.target.value)}
+                          required
+                          placeholder="e.g. Low Inventory Test"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                          Description
+                        </label>
+                        <Input
+                          value={scenarioDescription}
+                          onChange={(e) => onScenarioDescriptionChange(e.target.value)}
+                          placeholder="Optional description"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                          Config JSON
+                        </label>
+                        <Textarea
+                          value={scenarioConfigJson}
+                          onChange={(e) => onScenarioConfigJsonChange(e.target.value)}
+                          rows={3}
+                          className="font-mono text-xs"
+                          placeholder='{"product_count": 10}'
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button type="submit" variant="onyx" size="sm">Create Scenario</Button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Scenarios table */}
+                <div className="bg-card rounded-none border border-border overflow-hidden">
+                  {scenarios.length === 0 ? (
+                    <div className="py-8 flex flex-col items-center gap-2">
+                      <FlaskConical className="size-6 text-muted-foreground/40" />
+                      <p className="text-xs text-muted-foreground">No scenarios for this version</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Name</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Description</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Config</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Created</th>
+                          <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scenarios.map((sc) => (
+                          <tr
+                            key={sc.id}
+                            className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
+                          >
+                            {launching === sc.id && (
+                              <td colSpan={5} className="absolute inset-0">
+                                <LaunchOverlay />
+                              </td>
+                            )}
+                            <td className="py-2.5 px-3 font-medium">{sc.name}</td>
+                            <td className="py-2.5 px-3 text-muted-foreground max-w-[160px] truncate">
+                              {sc.description || "---"}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 max-w-[120px] truncate block">
+                                {JSON.stringify(sc.config_json)}
+                              </code>
+                            </td>
+                            <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(sc.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="onyx"
+                                  size="xs"
+                                  onClick={() => onLaunchSandbox(sc.id)}
+                                  disabled={launching === sc.id}
+                                >
+                                  <Play className="size-3" />
+                                  Launch
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  onClick={() => onDeleteScenario(sc.id)}
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* Workflows sub-section */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                  <Workflow className="size-4 text-muted-foreground" />
+                  Workflows
+                </h4>
+
+                <div className="bg-card rounded-none border border-border overflow-hidden">
+                  {workflows.length === 0 ? (
+                    <div className="py-8 flex flex-col items-center gap-2">
+                      <Workflow className="size-6 text-muted-foreground/40" />
+                      <p className="text-xs text-muted-foreground">No workflows for this version</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Name</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Steps</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Start Scenario</th>
+                          <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Created</th>
+                          <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workflows.map((wf) => (
+                          <tr
+                            key={wf.id}
+                            className="relative border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
+                          >
+                            {launching === wf.scenario_id && (
+                              <td colSpan={5} className="absolute inset-0">
+                                <LaunchOverlay />
+                              </td>
+                            )}
+                            <td className="py-2.5 px-3 font-medium">{wf.name}</td>
+                            <td className="py-2.5 px-3">
+                              <Badge variant="secondary" className="text-[10px]">
+                                {Array.isArray(wf.steps_json) ? wf.steps_json.length : 0}
+                              </Badge>
+                            </td>
+                            <td className="py-2.5 px-3 text-xs text-muted-foreground">
+                              {scenarios.find((s) => s.id === wf.scenario_id)?.name || wf.scenario_id.slice(0, 8)}
+                            </td>
+                            <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(wf.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="onyx"
+                                  size="xs"
+                                  onClick={() => onReplayWorkflow(wf)}
+                                  disabled={launching === wf.scenario_id}
+                                >
+                                  <Play className="size-3" />
+                                  Replay
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  onClick={() => onDeleteWorkflow(wf.id)}
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}

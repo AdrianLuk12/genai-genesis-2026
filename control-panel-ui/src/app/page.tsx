@@ -15,6 +15,8 @@ import {
   ExternalLink,
   Pencil,
   Plus,
+  Box,
+  ArrowRight,
 } from "lucide-react";
 
 interface Sandbox {
@@ -36,19 +38,28 @@ interface Scenario {
   created_at: string;
 }
 
+interface App {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
 export default function DashboardPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
   const { confirm } = useConfirm();
   const editName = useEditName();
 
   useEffect(() => {
-    Promise.all([api("/api/sandboxes"), api("/api/scenarios")])
-      .then(([sbs, scs]) => {
+    Promise.all([api("/api/sandboxes"), api("/api/scenarios"), api("/api/apps")])
+      .then(([sbs, scs, aps]) => {
         setSandboxes(sbs);
         setScenarios(scs);
+        setApps(aps);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -127,7 +138,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between animate-fade-in-up">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Link href="/scenarios">
+        <Link href="/apps">
           <Button variant="onyx" size="sm">
             <Plus className="size-4" />
             New Sandbox
@@ -153,9 +164,9 @@ export default function DashboardPage() {
               <p className="text-sm text-muted-foreground">
                 No active sandboxes
               </p>
-              <Link href="/scenarios">
+              <Link href="/apps">
                 <Button variant="outline" size="sm">
-                  Browse Scenarios
+                  Browse Apps
                 </Button>
               </Link>
             </div>
@@ -232,50 +243,51 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick Launch */}
-      {scenarios.length > 0 && (
-        <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-foreground">
-              Quick Launch
-            </h2>
-            <Link href="/scenarios" className="text-xs text-onyx-green hover:underline">
-              View all scenarios
+      {/* Your Apps */}
+      <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            Your Apps
+          </h2>
+          <Link href="/apps" className="text-xs text-onyx-green hover:underline">
+            Manage apps
+          </Link>
+        </div>
+        {apps.length === 0 ? (
+          <div className="bg-card border border-border p-8 flex flex-col items-center gap-3">
+            <Box className="size-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">No apps yet</p>
+            <Link href="/apps">
+              <Button variant="onyx" size="sm">
+                <Plus className="size-4" />
+                Create Your First App
+              </Button>
             </Link>
           </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {scenarios.slice(0, 3).map((sc) => (
-              <div
-                key={sc.id}
-                className="bg-card border border-border p-5 hover:border-onyx-green/30 hover:shadow-sm transition-all"
+            {apps.slice(0, 3).map((app) => (
+              <Link
+                key={app.id}
+                href={`/apps/${app.id}`}
+                className="bg-card border border-border p-5 hover:border-onyx-green/30 hover:shadow-sm transition-all group"
               >
-                <h3 className="font-semibold text-sm truncate">{sc.name}</h3>
+                <div className="flex items-center gap-2 mb-1">
+                  <Box className="size-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-sm truncate">{app.name}</h3>
+                </div>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">
-                  {sc.description || "No description"}
+                  {app.description || "No description"}
                 </p>
-                <Button
-                  variant="onyx"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => launchSandbox(sc.id)}
-                  disabled={launching === sc.id}
-                >
-                  {launching === sc.id ? (
-                    <span className="dot-loading">
-                      Launching<span>.</span><span>.</span><span>.</span>
-                    </span>
-                  ) : (
-                    <>
-                      <Play className="size-3.5" />
-                      Launch
-                    </>
-                  )}
-                </Button>
-              </div>
+                <div className="flex items-center gap-1 text-xs text-onyx-green group-hover:underline">
+                  View app
+                  <ArrowRight className="size-3" />
+                </div>
+              </Link>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
