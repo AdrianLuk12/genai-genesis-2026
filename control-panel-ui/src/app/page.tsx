@@ -156,7 +156,7 @@ export default function DashboardPage() {
 
         {sandboxes.length === 0 ? (
           <div className="border border-dashed border-border py-12 flex flex-col items-center gap-3 animate-fade-in">
-            <p className="text-sm text-muted-foreground animate-breathing">
+            <p className="text-sm text-muted-foreground">
               No active sandboxes
             </p>
             <Link href="/scenarios">
@@ -189,7 +189,7 @@ export default function DashboardPage() {
                     :{sb.port} / {sb.container_id.substring(0, 12)}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="mt-auto">
                   <div className="flex items-center gap-2 mb-3">
                     <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
                       {sb.status}
