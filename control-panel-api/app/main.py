@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Query, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
@@ -188,7 +189,10 @@ def _delete_version_resources(db, version_id: str, app_id: str):
         if s.get("db_file_path"):
             file_path = os.path.join(FILES_DIR, s["db_file_path"])
             if os.path.exists(file_path):
-                os.remove(file_path)
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
     db.execute("DELETE FROM scenarios WHERE app_version_id = ?", (version_id,))
 
     # Delete workflows for this version
@@ -253,6 +257,7 @@ async def upload_version(
     app_id: str,
     version_tag: str = Form(...),
     file: UploadFile = File(...),
+    data_path: str = Form("/app/data"),
 ):
     db = get_db()
     row = db.execute("SELECT id FROM apps WHERE id = ?", (app_id,)).fetchone()
@@ -281,10 +286,13 @@ async def upload_version(
     if loaded:
         loaded[0].tag(f"monkeylab-{app_id}-{version_id}", tag="latest")
 
+    # Normalize data_path: strip trailing slashes
+    data_path = data_path.rstrip("/") or "/app/data"
+
     # Save version record
     db.execute(
-        "INSERT INTO app_versions (id, app_id, version_tag, docker_image_name) VALUES (?, ?, ?, ?)",
-        (version_id, app_id, version_tag, image_name),
+        "INSERT INTO app_versions (id, app_id, version_tag, docker_image_name, data_path) VALUES (?, ?, ?, ?, ?)",
+        (version_id, app_id, version_tag, image_name, data_path),
     )
     db.commit()
     row = db.execute("SELECT * FROM app_versions WHERE id = ?", (version_id,)).fetchone()
@@ -339,11 +347,11 @@ async def list_workflows(app_version_id: str = Query(None)):
     db = get_db()
     if app_version_id:
         rows = db.execute(
-            "SELECT * FROM workflows WHERE app_version_id = ? ORDER BY created_at DESC",
+            "SELECT w.*, s.name AS scenario_name FROM workflows w LEFT JOIN scenarios s ON w.scenario_id = s.id WHERE w.app_version_id = ? ORDER BY w.created_at DESC",
             (app_version_id,),
         ).fetchall()
     else:
-        rows = db.execute("SELECT * FROM workflows ORDER BY created_at DESC").fetchall()
+        rows = db.execute("SELECT w.*, s.name AS scenario_name FROM workflows w LEFT JOIN scenarios s ON w.scenario_id = s.id ORDER BY w.created_at DESC").fetchall()
     db.close()
     return [row_to_dict(r) for r in rows]
 
@@ -355,6 +363,31 @@ async def get_workflow(workflow_id: str):
     db.close()
     if not row:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    return row_to_dict(row)
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = None
+
+
+@app.patch("/api/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, body: WorkflowUpdate):
+    db = get_db()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    updates = []
+    params = []
+    if body.name is not None:
+        updates.append("name = ?")
+        params.append(body.name)
+    if updates:
+        params.append(workflow_id)
+        db.execute(f"UPDATE workflows SET {', '.join(updates)} WHERE id = ?", params)
+        db.commit()
+    row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    db.close()
     return row_to_dict(row)
 
 
@@ -498,16 +531,20 @@ async def delete_scenario(scenario_id: str):
         db.close()
         raise HTTPException(status_code=404, detail="Scenario not found")
 
-    # Delete .db file from filesystem if exists
+    # Delete db file/directory from filesystem if exists
     if row["db_file_path"]:
         file_path = os.path.join(FILES_DIR, row["db_file_path"])
         if os.path.exists(file_path):
-            os.remove(file_path)
+            if os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            else:
+                os.remove(file_path)
         # Clean up empty parent directory
         parent_dir = os.path.dirname(file_path)
         if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
             os.rmdir(parent_dir)
 
+    db.execute("DELETE FROM workflows WHERE scenario_id = ?", (scenario_id,))
     db.execute("DELETE FROM scenarios WHERE id = ?", (scenario_id,))
     db.commit()
     db.close()
@@ -570,20 +607,43 @@ async def create_sandbox(body: SandboxCreate):
             image_name = ver_row["docker_image_name"]
             app_id = ver_row["app_id"]
 
-    # Prepare volume mount for .db file
+    # Resolve data_path from app version (default /app/data for legacy)
+    mount_data_path = "/app/data"
+    if app_version_id:
+        dp_row = db.execute(
+            "SELECT data_path FROM app_versions WHERE id = ?", (app_version_id,)
+        ).fetchone()
+        if dp_row and dp_row.get("data_path"):
+            mount_data_path = dp_row["data_path"]
+
+    # Prepare volume mount for db files
     volumes = {}
     if scenario.get("db_file_path"):
         src_path = os.path.join(FILES_DIR, scenario["db_file_path"])
         if os.path.exists(src_path):
-            # Copy to temp location for container mount
-            temp_db_path = os.path.join(tempfile.gettempdir(), f"sandbox-{uuid.uuid4().hex}.db")
-            shutil.copy2(src_path, temp_db_path)
-            volumes[temp_db_path] = {"bind": "/app/data/store.db", "mode": "rw"}
+            if os.path.isdir(src_path):
+                # New format: directory containing data files
+                temp_data_dir = tempfile.mkdtemp(prefix="sandbox-data-")
+                shutil.copytree(src_path, temp_data_dir, dirs_exist_ok=True)
+                volumes[temp_data_dir] = {"bind": mount_data_path, "mode": "rw"}
+            else:
+                # Legacy format: single .db file (no WAL captured)
+                temp_db_path = os.path.join(tempfile.gettempdir(), f"sandbox-{uuid.uuid4().hex}.db")
+                shutil.copy2(src_path, temp_db_path)
+                volumes[temp_db_path] = {"bind": f"{mount_data_path}/store.db", "mode": "rw"}
 
     # Run container
     env = {}
-    if scenario.get("config_json"):
-        env["SCENARIO_CONFIG"] = json.dumps(scenario["config_json"])
+    config_json = scenario.get("config_json") or {}
+    if isinstance(config_json, str):
+        config_json = json.loads(config_json)
+    # Inject individual env vars from config_json.env
+    if isinstance(config_json.get("env"), dict):
+        for key, val in config_json["env"].items():
+            env[key] = str(val)
+    # SCENARIO_CONFIG is set after individual env vars so it takes precedence on name collision
+    if config_json:
+        env["SCENARIO_CONFIG"] = json.dumps(config_json)
 
     labels = {"sandbox-platform": "true"}
     if app_id:
@@ -613,12 +673,15 @@ async def create_sandbox(body: SandboxCreate):
     db.commit()
     db.close()
 
+    start_url = config_json.get("start_url", "/") if config_json else "/"
+
     return {
         "sandbox_url": sandbox_url,
         "container_id": container.id,
         "port": port,
         "scenario_id": body.scenario_id,
         "app_version_id": app_version_id,
+        "start_url": start_url,
     }
 
 
@@ -743,30 +806,42 @@ async def save_walkthrough(container_id: str, body: SaveRequest = SaveRequest())
         db.close()
         raise HTTPException(status_code=404, detail="Container not found in Docker")
 
+    # Look up data_path from the app version
+    app_version_id = record.get("app_version_id")
+    data_path = "/app/data"
+    if app_version_id:
+        ver_row = db.execute(
+            "SELECT data_path FROM app_versions WHERE id = ?", (app_version_id,)
+        ).fetchone()
+        if ver_row and ver_row.get("data_path"):
+            data_path = ver_row["data_path"]
+
     container.pause()
 
     try:
-        # Extract .db file via docker cp
-        bits, _ = container.get_archive("/app/data/store.db")
+        # Extract the data directory from the container
+        bits, _ = container.get_archive(data_path)
 
         tar_stream = io.BytesIO()
         for chunk in bits:
             tar_stream.write(chunk)
         tar_stream.seek(0)
 
-        with tarfile.open(fileobj=tar_stream) as tar:
-            db_member = tar.getmembers()[0]
-            db_file = tar.extractfile(db_member)
-            if db_file is None:
-                raise HTTPException(status_code=500, detail="Failed to extract database")
-            db_data = db_file.read()
-
-        # Save to local filesystem
-        rel_path = f"walkthroughs/{uuid.uuid4().hex}.db"
+        # Save to local filesystem as a directory
+        rel_path = f"walkthroughs/{uuid.uuid4().hex}"
         abs_path = os.path.join(FILES_DIR, rel_path)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        with open(abs_path, "wb") as f:
-            f.write(db_data)
+        os.makedirs(abs_path, exist_ok=True)
+
+        # Strip the tar prefix dynamically based on the data_path basename
+        tar_prefix = os.path.basename(data_path.rstrip("/"))
+        with tarfile.open(fileobj=tar_stream) as tar:
+            for member in tar.getmembers():
+                if member.name.startswith(f"{tar_prefix}/"):
+                    member.name = member.name[len(f"{tar_prefix}/"):]
+                elif member.name == tar_prefix:
+                    continue
+                if member.name:
+                    tar.extract(member, path=abs_path)
 
         # Get parent scenario info for naming and app_version_id
         parent_row = db.execute(

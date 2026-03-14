@@ -1,18 +1,4 @@
-## Purpose
-Walkthrough replay capability for replaying previously captured user interaction steps within sandboxed target app iframes.
-
-## Requirements
-
-### Requirement: Replay button in sandbox view
-The control panel UI SHALL display a "Replay" button in the sandbox view header when the active sandbox was launched from a scenario that has saved walkthrough steps. The button SHALL NOT appear if the scenario has no saved steps.
-
-#### Scenario: Replay button visible
-- **WHEN** a sandbox is launched from a scenario with saved walkthrough steps
-- **THEN** the sandbox view header shows a "Replay" button alongside the existing action buttons
-
-#### Scenario: Replay button hidden
-- **WHEN** a sandbox is launched from a scenario with no walkthrough steps (null or empty array)
-- **THEN** no "Replay" button appears in the sandbox view header
+## MODIFIED Requirements
 
 ### Requirement: Sequential step replay
 When the user clicks "Replay", the control panel SHALL send each saved step to the target app iframe via postMessage in sequence. For each step, the control panel SHALL:
@@ -63,25 +49,3 @@ If a replay click or input step fails to find the target element after 3 retries
 #### Scenario: Navigate step timeout
 - **WHEN** replay sends a navigate message and neither `navigate-done` nor `bridge-ready` is received within 8 seconds
 - **THEN** replay logs a warning and proceeds to the next step
-
-### Requirement: Replay controls
-The control panel SHALL provide controls to stop an in-progress replay. During replay, the "Replay" button SHALL change to "Stop Replay".
-
-#### Scenario: Stop replay mid-execution
-- **WHEN** the user clicks "Stop Replay" during an active replay at step 3 of 5
-- **THEN** replay stops immediately, no further steps are executed, and the button reverts to "Replay"
-
-### Requirement: Bridge script replay support
-The target app bridge script SHALL handle `replay-click` messages by locating the element using the provided selector, applying a visual highlight, calling `.click()` on the element, and posting a confirmation message back to the parent. The bridge script SHALL handle `navigate` messages by navigating to the specified URL path and posting a confirmation once the page has loaded.
-
-#### Scenario: Replay click execution
-- **WHEN** the bridge receives `{ type: "replay-click", selector: "[data-testid=\"add-to-cart-btn-1\"]" }`
-- **THEN** the script finds the element, highlights it, clicks it, and posts `{ type: "replay-click-done", index: 0, success: true }`
-
-#### Scenario: Navigate for replay
-- **WHEN** the bridge receives `{ type: "navigate", url: "/admin" }`
-- **THEN** the script navigates to `/admin` and posts `{ type: "navigate-done", url: "/admin" }` once the page content has loaded
-
-#### Scenario: Element not found for replay
-- **WHEN** the bridge receives a `replay-click` for a selector that matches no element
-- **THEN** the script posts `{ type: "replay-click-done", index: 0, success: false, error: "Element not found" }`

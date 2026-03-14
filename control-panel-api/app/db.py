@@ -156,6 +156,7 @@ def _init_sqlite_db():
             app_id TEXT NOT NULL,
             version_tag TEXT NOT NULL,
             docker_image_name TEXT NOT NULL,
+            data_path TEXT DEFAULT '/app/data',
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -209,6 +210,11 @@ def _init_sqlite_db():
     except Exception:
         conn.execute("ALTER TABLE scenarios ADD COLUMN app_version_id TEXT")
 
+    try:
+        conn.execute("SELECT data_path FROM app_versions LIMIT 1")
+    except Exception:
+        conn.execute("ALTER TABLE app_versions ADD COLUMN data_path TEXT DEFAULT '/app/data'")
+
     conn.commit()
     conn.close()
 
@@ -238,6 +244,7 @@ def _init_db2_db():
                 app_id VARCHAR(64) NOT NULL,
                 version_tag VARCHAR(128) NOT NULL,
                 docker_image_name VARCHAR(512) NOT NULL,
+                data_path VARCHAR(1024) DEFAULT '/app/data',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT TIMESTAMP
             )
             """
@@ -298,6 +305,9 @@ def _init_db2_db():
 
     if not _column_exists_db2(conn, "scenarios", "app_version_id"):
         cursor.execute("ALTER TABLE scenarios ADD COLUMN app_version_id VARCHAR(64)")
+
+    if not _column_exists_db2(conn, "app_versions", "data_path"):
+        cursor.execute("ALTER TABLE app_versions ADD COLUMN data_path VARCHAR(1024) DEFAULT '/app/data'")
 
     conn.commit()
     cursor.close()
