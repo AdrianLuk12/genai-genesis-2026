@@ -22,6 +22,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script src="http://localhost:8000/static/bridge.js" async />
+      </head>
       <body className={`${geistSans.variable} font-sans antialiased`}>
         <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6">
           <span className="font-bold text-lg mr-4">Sandbox Store</span>
