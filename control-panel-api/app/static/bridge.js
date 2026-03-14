@@ -9,6 +9,46 @@
   var inputListener = null;
   var stepIndex = 0;
 
+  // Buffer for navigation-only click detection:
+  // Clicks on <a> tags or form submit buttons are held briefly.
+  // If a URL change follows, the click was navigation-only and is discarded.
+  // If no URL change, the click is flushed as a normal captured step.
+  var pendingNavClick = null;
+  var pendingNavTimer = null;
+
+  function flushPendingNavClick() {
+    if (pendingNavClick) {
+      window.parent.postMessage({ type: "step-captured", step: pendingNavClick }, "*");
+      pendingNavClick = null;
+    }
+    if (pendingNavTimer) {
+      clearTimeout(pendingNavTimer);
+      pendingNavTimer = null;
+    }
+  }
+
+  function discardPendingNavClick() {
+    if (pendingNavClick) {
+      stepIndex--; // reclaim the index
+      pendingNavClick = null;
+    }
+    if (pendingNavTimer) {
+      clearTimeout(pendingNavTimer);
+      pendingNavTimer = null;
+    }
+  }
+
+  function isNavigationElement(target) {
+    // Click is inside an <a> with href
+    if (target.closest && target.closest("a[href]")) return true;
+    // Click is on a submit-like element inside a form
+    if (target.closest && target.closest("form")) {
+      var btn = target.closest("button, input[type='submit']");
+      if (btn) return true;
+    }
+    return false;
+  }
+
   function getCssPath(el) {
     var parts = [];
     var current = el;
@@ -58,6 +98,74 @@
     };
   }
 
+  // Poll for an element by selector (+ fallbacks) until found or timeout
+  function findElement(selector, fallbackSelectors, timeout, callback) {
+    function tryFind() {
+      var el = document.querySelector(selector);
+      if (!el && fallbackSelectors) {
+        for (var i = 0; i < fallbackSelectors.length; i++) {
+          el = document.querySelector(fallbackSelectors[i]);
+          if (el) break;
+        }
+      }
+      return el;
+    }
+
+    var el = tryFind();
+    if (el) return callback(el);
+
+    var start = Date.now();
+    var poll = setInterval(function () {
+      el = tryFind();
+      if (el) {
+        clearInterval(poll);
+        callback(el);
+      } else if (Date.now() - start > timeout) {
+        clearInterval(poll);
+        callback(null);
+      }
+    }, 200);
+  }
+
+  // Track URL changes from in-app navigation (pushState, replaceState, popstate, click-driven)
+  var lastKnownPath = window.location.pathname + window.location.search;
+
+  function notifyUrlChange() {
+    var currentPath = window.location.pathname + window.location.search;
+    if (currentPath !== lastKnownPath) {
+      lastKnownPath = currentPath;
+      // URL changed — if a nav click was buffered, it was navigation-only; discard it
+      discardPendingNavClick();
+      window.parent.postMessage({ type: "url-changed", path: window.location.pathname, search: window.location.search }, "*");
+    }
+  }
+
+  // Patch pushState and replaceState to detect SPA navigations
+  var origPushState = history.pushState;
+  history.pushState = function () {
+    origPushState.apply(this, arguments);
+    notifyUrlChange();
+  };
+  var origReplaceState = history.replaceState;
+  history.replaceState = function () {
+    origReplaceState.apply(this, arguments);
+    notifyUrlChange();
+  };
+  window.addEventListener("popstate", notifyUrlChange);
+
+  // Poll as a fallback for navigations we can't intercept (e.g. Next.js soft nav)
+  setInterval(notifyUrlChange, 500);
+
+  // Notify parent that bridge is ready — wait for DOM to be interactive so React can hydrate
+  function sendBridgeReady() {
+    window.parent.postMessage({ type: "bridge-ready", path: window.location.pathname }, "*");
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", sendBridgeReady);
+  } else {
+    sendBridgeReady();
+  }
+
   window.addEventListener("message", function (event) {
     var data = event.data || {};
     var type = data.type;
@@ -71,6 +179,8 @@
       clickListener = function (e) {
         var target = e.target;
         if (!target || !target.tagName) return;
+        // Flush any previously buffered nav click before processing new click
+        flushPendingNavClick();
         var info = getSelector(target);
         var step = {
           index: stepIndex++,
@@ -83,7 +193,13 @@
           pageTitle: document.title,
           action: "click"
         };
-        window.parent.postMessage({ type: "step-captured", step: step }, "*");
+        if (isNavigationElement(target)) {
+          // Buffer the click — if a URL change follows, discard it (navigation-only)
+          pendingNavClick = step;
+          pendingNavTimer = setTimeout(flushPendingNavClick, 500);
+        } else {
+          window.parent.postMessage({ type: "step-captured", step: step }, "*");
+        }
       };
 
       inputListener = function (e) {
@@ -128,39 +244,33 @@
       var selector = data.selector;
       var fallbackSelectors = data.fallbackSelectors;
       var index = data.index;
-      var el = document.querySelector(selector);
 
-      if (!el && fallbackSelectors) {
-        for (var i = 0; i < fallbackSelectors.length; i++) {
-          el = document.querySelector(fallbackSelectors[i]);
-          if (el) break;
-        }
-      }
+      findElement(selector, fallbackSelectors, 5000, function (el) {
+        if (el) {
+          var rect = getRect(el);
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
 
-      if (el) {
-        var rect = getRect(el);
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Send location for overlay
+          window.parent.postMessage({
+            type: "replay-click-location",
+            x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+            index: index
+          }, "*");
 
-        // Send location for overlay
-        window.parent.postMessage({
-          type: "replay-click-location",
-          x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-          index: index
-        }, "*");
-
-        setTimeout(function () {
-          el.click();
           setTimeout(function () {
-            window.parent.postMessage(
-              { type: "replay-click-done", index: index, success: true }, "*"
-            );
-          }, 300);
-        }, 500);
-      } else {
-        window.parent.postMessage(
-          { type: "replay-click-done", index: index, success: false, error: "Element not found" }, "*"
-        );
-      }
+            el.click();
+            setTimeout(function () {
+              window.parent.postMessage(
+                { type: "replay-click-done", index: index, success: true }, "*"
+              );
+            }, 300);
+          }, 500);
+        } else {
+          window.parent.postMessage(
+            { type: "replay-click-done", index: index, success: false, error: "Element not found" }, "*"
+          );
+        }
+      });
     }
 
     if (type === "replay-input") {
@@ -168,48 +278,42 @@
       var fallbackSelectors2 = data.fallbackSelectors;
       var value = data.value;
       var index2 = data.index;
-      var el2 = document.querySelector(selector2);
 
-      if (!el2 && fallbackSelectors2) {
-        for (var j = 0; j < fallbackSelectors2.length; j++) {
-          el2 = document.querySelector(fallbackSelectors2[j]);
-          if (el2) break;
-        }
-      }
+      findElement(selector2, fallbackSelectors2, 5000, function (el2) {
+        if (el2) {
+          var rect2 = getRect(el2);
+          el2.scrollIntoView({ behavior: "smooth", block: "center" });
 
-      if (el2) {
-        var rect2 = getRect(el2);
-        el2.scrollIntoView({ behavior: "smooth", block: "center" });
+          window.parent.postMessage({
+            type: "replay-click-location",
+            x: rect2.x, y: rect2.y, width: rect2.width, height: rect2.height,
+            index: index2
+          }, "*");
 
-        window.parent.postMessage({
-          type: "replay-click-location",
-          x: rect2.x, y: rect2.y, width: rect2.width, height: rect2.height,
-          index: index2
-        }, "*");
+          el2.focus();
+          // Use native setter for React compatibility
+          var nativeSetter =
+            Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value") ||
+            Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+          if (nativeSetter && nativeSetter.set) {
+            nativeSetter.set.call(el2, value);
+          } else {
+            el2.value = value;
+          }
+          el2.dispatchEvent(new Event("input", { bubbles: true }));
+          el2.dispatchEvent(new Event("change", { bubbles: true }));
 
-        el2.focus();
-        // Use native setter for React compatibility
-        var nativeSetter =
-          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value") ||
-          Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
-        if (nativeSetter && nativeSetter.set) {
-          nativeSetter.set.call(el2, value);
+          setTimeout(function () {
+            window.parent.postMessage(
+              { type: "replay-input-done", index: index2, success: true }, "*"
+            );
+          }, 300);
         } else {
-          el2.value = value;
-        }
-        el2.dispatchEvent(new Event("input", { bubbles: true }));
-        el2.dispatchEvent(new Event("change", { bubbles: true }));
-
-        setTimeout(function () {
           window.parent.postMessage(
-            { type: "replay-input-done", index: index2, success: true }, "*"
+            { type: "replay-input-done", index: index2, success: false, error: "Element not found" }, "*"
           );
-        }, 300);
-      } else {
-        window.parent.postMessage(
-          { type: "replay-input-done", index: index2, success: false, error: "Element not found" }, "*"
-        );
-      }
+        }
+      });
     }
 
     if (type === "capture-dom") {

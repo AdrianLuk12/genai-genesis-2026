@@ -21,11 +21,11 @@ The API SHALL NOT require any external service credentials or connections beyond
 The `supabase` package SHALL be removed from `requirements.txt`. The `supabase_schema.sql` file SHALL be deleted.
 
 ### Requirement: Sandbox management API
-The control panel API SHALL support renaming sandboxes via a PATCH endpoint and SHALL store a display name for each sandbox.
+The control panel API SHALL support renaming sandboxes via a PATCH endpoint and SHALL store a display name for each sandbox. The API SHALL also expose walkthrough steps data when listing and retrieving scenarios.
 
-#### Scenario: Add name column to active_containers
+#### Scenario: Add walkthrough_steps column to scenarios
 - **WHEN** the application starts
-- **THEN** the `active_containers` table has a `name` column (TEXT, nullable, default NULL), added via ALTER TABLE if it doesn't exist
+- **THEN** the `scenarios` table has a `walkthrough_steps` column (TEXT, nullable, default NULL), added via ALTER TABLE if it doesn't exist
 
 #### Scenario: Rename sandbox
 - **WHEN** a PATCH request is sent to `/api/sandboxes/{container_id}` with `{ "name": "My Sandbox" }`
@@ -42,3 +42,15 @@ The control panel API SHALL support renaming sandboxes via a PATCH endpoint and 
 #### Scenario: List sandboxes includes name
 - **WHEN** a GET request is sent to `/api/sandboxes`
 - **THEN** each sandbox in the response includes the `name` field (null if not set)
+
+#### Scenario: List scenarios includes walkthrough_steps
+- **WHEN** a GET request is sent to `/api/scenarios`
+- **THEN** each scenario in the response includes the `walkthrough_steps` field (null if none, or a JSON array of step objects)
+
+#### Scenario: Get single scenario includes walkthrough_steps
+- **WHEN** a GET request is sent to `/api/scenarios/{scenario_id}`
+- **THEN** the response includes the `walkthrough_steps` field
+
+#### Scenario: Save endpoint accepts walkthrough_steps
+- **WHEN** a POST request to `/api/sandboxes/{container_id}/save` includes `{ "walkthrough_steps": [...] }`
+- **THEN** the new scenario record is created with the provided `walkthrough_steps` JSON stored in the column

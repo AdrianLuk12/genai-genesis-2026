@@ -250,7 +250,7 @@ export default function ScenariosPage() {
       {/* Scenario list */}
       {scenarios.length === 0 ? (
         <div className="border border-dashed border-border py-16 flex flex-col items-center gap-3 animate-fade-in-up" style={{ animationDelay: "120ms" }}>
-          <p className="text-sm text-muted-foreground animate-breathing">
+          <p className="text-sm text-muted-foreground">
             No scenarios yet
           </p>
           <p className="text-xs text-muted-foreground/60">
@@ -281,7 +281,7 @@ export default function ScenariosPage() {
                   {sc.description || "No description"}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="mt-auto">
                 <pre className="text-[11px] font-mono bg-secondary/60 border border-border/30 p-2.5 mb-3 overflow-auto max-h-20 text-muted-foreground">
                   {JSON.stringify(sc.config_json, null, 2)}
                 </pre>
