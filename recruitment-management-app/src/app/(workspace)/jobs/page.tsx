@@ -1,191 +1,175 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Briefcase, Building2, MapPin, Trash2, Plus } from "lucide-react";
 
 type Job = {
-    id: string;
-    title: string;
-    department: string;
-    location: string;
-    status: string;
-    openings: number;
+  id: string;
+  title: string;
+  department: string;
+  location: string;
+  status: string;
+  openings: number;
 };
 
-export default function JobsPage() {
-    const [jobs, setJobs] = useState<Job[]>([]);
-    const [query, setQuery] = useState("");
-    const [statusFilter, setStatusFilter] = useState("All");
-    const [form, setForm] = useState({
-        title: "",
-        department: "",
-        location: "",
-        status: "Open",
-        openings: 1,
+export default function AdminJobsPage() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [form, setForm] = useState({
+    title: "",
+    department: "",
+    location: "",
+    status: "Open",
+    openings: 1,
+  });
+
+  async function load() {
+    const data = await fetch("/api/jobs").then((res) => res.json());
+    setJobs(data);
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, []);
+
+  async function createJob(event: FormEvent) {
+    event.preventDefault();
+    await fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, openings: Number(form.openings) }),
     });
+    setForm({ title: "", department: "", location: "", status: "Open", openings: 1 });
+    load();
+  }
 
-    const loadJobs = () => {
-        fetch("/api/jobs")
-            .then((res) => res.json())
-            .then((data: Job[]) => setJobs(data));
-    };
-
-    useEffect(() => {
-        loadJobs();
-    }, []);
-
-    const filteredJobs = jobs.filter((job) => {
-        const matchesQuery =
-            job.title.toLowerCase().includes(query.toLowerCase()) ||
-            job.department.toLowerCase().includes(query.toLowerCase()) ||
-            job.location.toLowerCase().includes(query.toLowerCase());
-
-        const matchesStatus = statusFilter === "All" || job.status === statusFilter;
-        return matchesQuery && matchesStatus;
+  async function updateStatus(id: string, status: string) {
+    await fetch(`/api/jobs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
     });
+    load();
+  }
 
-    async function updateStatus(id: string, status: string) {
-        await fetch(`/api/jobs/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status }),
-        });
-        loadJobs();
-    }
+  async function removeJob(id: string) {
+    await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+    load();
+  }
 
-    async function removeJob(id: string) {
-        await fetch(`/api/jobs/${id}`, { method: "DELETE" });
-        loadJobs();
-    }
+  return (
+    <div className="space-y-6" data-testid="admin-jobs-page">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Briefcase className="w-5 h-5 text-muted-foreground" />
+          Manage Requisitions
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Create and manage open job positions across the company.
+        </p>
+      </div>
 
-    async function onSubmit(event: FormEvent) {
-        event.preventDefault();
+      <div className="grid gap-6 md:grid-cols-3 items-start">
+        {/* New Job Form */}
+        <Card className="p-5 md:sticky top-20">
+          <form onSubmit={createJob} className="space-y-4" data-testid="admin-jobs-create-form">
+            <h3 className="font-medium text-[14px]">Create New Role</h3>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="text-[12px] font-medium mb-1.5 block">Job Title</label>
+                <Input value={form.title} placeholder="e.g. Senior Engineer" onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} required data-testid="job-form-title" />
+              </div>
+              
+              <div>
+                <label className="text-[12px] font-medium mb-1.5 block">Department</label>
+                <Input value={form.department} placeholder="e.g. Engineering" onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))} required data-testid="job-form-department" />
+              </div>
+              
+              <div>
+                <label className="text-[12px] font-medium mb-1.5 block">Location</label>
+                <Input value={form.location} placeholder="e.g. Remote, NY" onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} required data-testid="job-form-location" />
+              </div>
 
-        await fetch("/api/jobs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...form, openings: Number(form.openings) }),
-        });
-
-        setForm({
-            title: "",
-            department: "",
-            location: "",
-            status: "Open",
-            openings: 1,
-        });
-        loadJobs();
-    }
-
-    return (
-        <section className="stack">
-            <header>
-                <p className="eyebrow-light">Role planning and headcount</p>
-                <h2 className="title">Jobs</h2>
-            </header>
-
-            <form onSubmit={onSubmit} className="panel form-grid">
-                <input
-                    placeholder="Title"
-                    value={form.title}
-                    onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                    required
-                />
-                <input
-                    placeholder="Department"
-                    value={form.department}
-                    onChange={(event) =>
-                        setForm((prev) => ({ ...prev, department: event.target.value }))
-                    }
-                    required
-                />
-                <input
-                    placeholder="Location"
-                    value={form.location}
-                    onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
-                    required
-                />
-                <select
-                    value={form.status}
-                    onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
-                >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[12px] font-medium mb-1.5 block">Status</label>
+                  <select 
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} data-testid="job-form-status"
+                  >
                     <option>Open</option>
                     <option>Paused</option>
                     <option>Closed</option>
-                </select>
-                <input
-                    type="number"
-                    min={1}
-                    value={form.openings}
-                    onChange={(event) =>
-                        setForm((prev) => ({ ...prev, openings: Number(event.target.value) }))
-                    }
-                />
-                <button type="submit">Create Job</button>
-            </form>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[12px] font-medium mb-1.5 block">Headcount</label>
+                  <Input type="number" min={1} value={form.openings} onChange={(e) => setForm((p) => ({ ...p, openings: Number(e.target.value) }))} required data-testid="job-form-openings" />
+                </div>
+              </div>
+            </div>
 
-            <section className="panel toolbar">
-                <input
-                    placeholder="Search by title, department, or location"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                />
-                <select
-                    value={statusFilter}
-                    onChange={(event) => setStatusFilter(event.target.value)}
-                >
-                    <option>All</option>
-                    <option>Open</option>
-                    <option>Paused</option>
-                    <option>Closed</option>
-                </select>
-            </section>
+            <Button type="submit" className="w-full mt-2" data-testid="job-form-submit">
+              <Plus className="w-4 h-4 mr-2" /> Create Job
+            </Button>
+          </form>
+        </Card>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Title</th>
-                        <th>Department</th>
-                        <th>Location</th>
-                        <th>Status</th>
-                        <th>Openings</th>
-                        <th>Actions</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {filteredJobs.map((job) => (
-                        <tr key={job.id}>
-                            <td>{job.title}</td>
-                            <td>{job.department}</td>
-                            <td>{job.location}</td>
-                            <td>
-                                <select
-                                    value={job.status}
-                                    onChange={(event) => updateStatus(job.id, event.target.value)}
-                                >
-                                    <option>Open</option>
-                                    <option>Paused</option>
-                                    <option>Closed</option>
-                                </select>
-                            </td>
-                            <td>{job.openings}</td>
-                            <td>
-                                <button
-                                    type="button"
-                                    className="danger-btn"
-                                    onClick={() => removeJob(job.id)}
-                                >
-                                    Delete
-                                </button>
-                            </td>
-                            <td>
-                                <Link href={`/jobs/${job.id}`}>View</Link>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </section>
-    );
+        {/* Existing Jobs List */}
+        <div className="md:col-span-2 space-y-4" data-testid="admin-jobs-table-panel">
+          {jobs.length === 0 ? (
+             <Card className="p-8 text-center flex flex-col items-center justify-center text-muted-foreground border-dashed">
+             <Briefcase className="w-8 h-8 opacity-20 mb-3" />
+             <p className="text-sm">No requisitions created yet.</p>
+           </Card>
+          ) : (
+            jobs.map((job) => (
+              <Card key={job.id} className="p-0 overflow-hidden group transition-all duration-200 hover:shadow-md border-border/60">
+                <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h4 className="font-semibold text-[15px] group-hover:text-blue-600 transition-colors">{job.title}</h4>
+                    <div className="flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
+                      <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {job.department}</span>
+                      <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {job.location}</span>
+                      <span className="inline-flex px-2 py-0.5 rounded-full bg-secondary text-[11px] font-medium">Headcount: {job.openings}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 self-start sm:self-auto">
+                    <div className="flex items-center bg-muted/30 rounded-md border border-border/50 px-2 py-1">
+                      <span className={`w-2 h-2 rounded-full mr-2 ${job.status === 'Open' ? 'bg-green-500' : job.status === 'Paused' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                      <select 
+                        value={job.status} 
+                        onChange={(e) => updateStatus(job.id, e.target.value)} 
+                        className="bg-transparent text-[13px] font-medium outline-none cursor-pointer"
+                        data-testid={`job-status-select-${job.id}`}
+                      >
+                        <option>Open</option>
+                        <option>Paused</option>
+                        <option>Closed</option>
+                      </select>
+                    </div>
+                    
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-muted-foreground hover:text-red-600 hover:bg-red-50 -ml-1 h-8 w-8"
+                      onClick={() => removeJob(job.id)}
+                      data-testid={`job-delete-${job.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
