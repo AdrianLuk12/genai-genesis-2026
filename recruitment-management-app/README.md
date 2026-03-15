@@ -31,19 +31,25 @@ Styling uses a custom design system in `src/app/globals.css` (no Tailwind CSS).
 
 ## Local development
 
-1. Install dependencies:
+1. Copy the environment template:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Start the app:
+3. Start the app:
 
    ```bash
    npm run dev -- --port 3002
    ```
 
-3. Open `http://localhost:3002`.
+4. Open `http://localhost:3002`.
 
 ## Experience split (for demos)
 
@@ -75,11 +81,21 @@ To use your own credentials, update `.env` values and restart the app.
 
 ## Data model
 
-Current implementation uses local JSON stores:
+Data is stored in `data/recruit.db` (SQLite via `better-sqlite3`). Tables:
 
-- `data/recruitment.json` for recruitment workflows
+- **jobs** — requisitions with status, department, location
+- **candidates** — pipeline entries linked to jobs with stage tracking
+- **interviews** — scheduled interviews linked to candidates and jobs
 
-The store auto-seeds realistic mock data and auto-backfills sparse existing files.
+Foreign keys use `ON DELETE CASCADE`: deleting a job removes its candidates and their interviews automatically.
+
+## Data Seeding
+
+- `npm run seed` creates `data/recruit.db` with Faker-generated data
+- On `npm start`, `scripts/entrypoint.js` seeds automatically if the DB does not exist
+- Set `SEED_COUNT` env var to control how many candidates are generated (default: 30)
+- Set `SCENARIO_CONFIG` as JSON to override individual seed parameters (e.g. `{"candidate_count":50,"job_count":10}`)
+- `SCENARIO_CONFIG` keys take precedence over `SEED_COUNT`
 
 ## Recruitment API endpoints
 
@@ -97,26 +113,16 @@ The store auto-seeds realistic mock data and auto-backfills sparse existing file
 - `POST /api/auth/user-login`
 - `POST /api/auth/logout`
 
-## Mock data included
+## Environment variables
 
-- Multiple jobs
-- Candidates across all funnel stages
-- Scheduled/completed/canceled interviews
-
-## IBM Db2 readiness
-
-Environment variables are included in `.env.example` for future Db2 migration:
-
-- `DB_PROVIDER`
-- `DB2_DSN`
-- `DB2_HOST`, `DB2_PORT`, `DB2_DATABASE`
-- `DB2_USERNAME`, `DB2_PASSWORD`, `DB2_SECURITY`
-
-## Environment setup
-
-```bash
-cp .env.example .env
-```
+| Variable | Description | Default |
+|---|---|---|
+| `SEED_COUNT` | Number of candidates to seed | `30` |
+| `SCENARIO_CONFIG` | JSON override for seed parameters | — |
+| `AUTH_ADMIN_EMAIL` | Admin login email | `admin@example.com` |
+| `AUTH_ADMIN_PASSWORD` | Admin login password | `change-me-admin-password` |
+| `AUTH_USER_EMAIL` | User login email | `user@example.com` |
+| `AUTH_USER_PASSWORD` | User login password | `change-me-user-password` |
 
 ## Build check
 
