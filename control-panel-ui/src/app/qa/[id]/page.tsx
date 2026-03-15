@@ -87,11 +87,14 @@ export default function QaReportPage() {
     }));
   })();
 
-  // Get actual failure descriptions for a path (to show in iframe area)
+  // Get actual failure descriptions for a path (to show in iframe area). Only failures, not passes.
   function getFailuresForPath(path: string): QaResult[] {
     if (!run?.results) return [];
     return run.results.filter(
-      (r) => (r.issue_type === "smoke" || r.issue_type === "request") && r.element_id === path
+      (r) =>
+        (r.issue_type === "smoke" || r.issue_type === "request") &&
+        r.element_id === path &&
+        !r.description?.includes("returned 200")
     );
   }
 
@@ -257,7 +260,7 @@ export default function QaReportPage() {
                 return (
                   <li
                     key={(res as QaResult).id ?? idx}
-                    className={`flex items-center justify-between gap-2 text-sm ${!isPass && (res.severity === "high" || res.severity === "critical") ? "bg-destructive/5 p-1.5 -mx-1 px-1.5 rounded" : ""}`}
+                    className={`flex items-center justify-between gap-2 text-sm ${isPass ? "bg-onyx-green/5 p-1.5 -mx-1 px-1.5 rounded" : (res.severity === "high" || res.severity === "critical") ? "bg-destructive/5 p-1.5 -mx-1 px-1.5 rounded" : ""}`}
                   >
                     <span className="font-medium text-foreground truncate min-w-0" title={res.description ?? ""}>
                       {label ? `${label}${(res.description?.length ?? 0) > 40 ? "…" : ""}` : (res.issue_type === "smoke" || res.issue_type === "request" ? "Request" : res.issue_type || "Issue")}
@@ -426,7 +429,7 @@ export default function QaReportPage() {
                             ) : (
                               <span>GET {s.path}</span>
                             )}
-                            <Badge variant={s.status === "200" ? "secondary" : "destructive"} className="text-[10px] font-mono shrink-0">
+                            <Badge variant={s.status === "200" ? "success" : "destructive"} className="text-[10px] font-mono shrink-0">
                               {s.status}
                             </Badge>
                           </div>

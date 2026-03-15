@@ -122,15 +122,15 @@ def ensure_app_and_versions(conn):
     if rows:
         return {r[1]: r[0] for r in rows}
 
-    app_id = str(uuid.uuid4())
+    app_id = "storefront-app"
     conn.execute(
         "INSERT INTO apps (id, name, description) VALUES (?, ?, ?)",
-        ("storefront-app", "Storefront Template", "E-commerce storefront for sandbox testing"),
+        (app_id, "Storefront App", "E-commerce storefront for sandbox testing"),
     )
     versions = [
-        ("ver-v1.0", app_id, "v1.0", "storefront-template"),
-        ("ver-v1.1", app_id, "v1.1", "storefront-template"),
-        ("ver-v1.2", app_id, "v1.2-beta", "storefront-template"),
+        ("ver-v1.0", app_id, "v1.0", "monkeylab-storefront-app-v1.0:latest"),
+        ("ver-v1.1", app_id, "v1.1", "monkeylab-storefront-app-v1.1:latest"),
+        ("ver-v1.2", app_id, "v1.2-beta", "monkeylab-storefront-app-v1.2:latest"),
     ]
     for vid, aid, tag, image in versions:
         conn.execute(

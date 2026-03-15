@@ -1119,10 +1119,11 @@ class QARunCreate(BaseModel):
 def list_qa_runs():
     db_conn = get_db()
     runs = db_conn.execute(
-        """SELECT r.*, a.docker_image_name as app_name, a.version_tag,
+        """SELECT r.*, COALESCE(ap.name, a.docker_image_name) as app_name, a.version_tag,
            (SELECT COUNT(*) FROM qa_results WHERE qa_run_id = r.id) as result_count
            FROM qa_runs r
            LEFT JOIN app_versions a ON r.app_version_id = a.id
+           LEFT JOIN apps ap ON a.app_id = ap.id
            ORDER BY r.started_at DESC"""
     ).fetchall()
 
@@ -1161,7 +1162,11 @@ def start_qa_run(version_id: str, payload: QARunCreate):
 def get_qa_run(run_id: str):
     db_conn = get_db()
     run = db_conn.execute(
-        "SELECT r.*, a.docker_image_name as app_name, a.version_tag FROM qa_runs r LEFT JOIN app_versions a ON r.app_version_id = a.id WHERE r.id = ?",
+        """SELECT r.*, COALESCE(ap.name, a.docker_image_name) as app_name, a.version_tag
+           FROM qa_runs r
+           LEFT JOIN app_versions a ON r.app_version_id = a.id
+           LEFT JOIN apps ap ON a.app_id = ap.id
+           WHERE r.id = ?""",
         (run_id,),
     ).fetchone()
     if not run:
