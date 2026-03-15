@@ -113,10 +113,10 @@ export default function AppDetailPage() {
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioDescription, setScenarioDescription] = useState("");
   const [scenarioStartUrl, setScenarioStartUrl] = useState("/");
-  const [scenarioSmokeUrls, setScenarioSmokeUrls] = useState("");
   const [scenarioEnvRows, setScenarioEnvRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
 
   const [launching, setLaunching] = useState<string | null>(null);
+  const [qaProgress, setQaProgress] = useState<{ runId: string; step: string } | null>(null);
 
   const { confirm } = useConfirm();
   const [editingName, setEditingName] = useState(false);
@@ -305,6 +305,25 @@ export default function AppDetailPage() {
     }
   }
 
+  async function runAutoQA(versionId: string, scenarios: Scenario[]) {
+    try {
+      setQaProgress({ runId: "", step: "Starting run…" });
+      const runRes = await api(`/api/apps/${versionId}/qa-run`, {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: scenarios?.[0]?.id ?? null }),
+      }) as { id: string };
+      const runId = runRes.id;
+      setQaProgress({ runId, step: "Launching environment…" });
+      await api(`/api/qa-runs/${runId}/execute`, { method: "POST" });
+      setQaProgress({ runId, step: "Opening report…" });
+      await new Promise((r) => setTimeout(r, 600));
+      window.location.href = `/qa/${runId}`;
+    } catch (err) {
+      setQaProgress(null);
+      alert(err instanceof Error ? err.message : "Failed to start QA run");
+    }
+  }
+
   async function deleteVersion(versionId: string) {
     const ok = await confirm({
       title: "Delete Version",
@@ -325,10 +344,6 @@ export default function AppDetailPage() {
       if (row.key.trim()) env[row.key.trim()] = row.value;
     }
     const config: Record<string, unknown> = { start_url: scenarioStartUrl, env };
-    const smokeUrlsTrimmed = scenarioSmokeUrls.trim();
-    if (smokeUrlsTrimmed) {
-      config.smoke_urls = smokeUrlsTrimmed.split(",").map((p) => (p.trim().startsWith("/") ? p.trim() : "/" + p.trim()));
-    }
     try {
       await api("/api/scenarios", {
         method: "POST",
@@ -342,7 +357,6 @@ export default function AppDetailPage() {
       setScenarioName("");
       setScenarioDescription("");
       setScenarioStartUrl("/");
-      setScenarioSmokeUrls("");
       setScenarioEnvRows([{ key: "", value: "" }]);
       setShowScenarioForm((prev) => ({ ...prev, [versionId]: false }));
       loadVersionScenarios(versionId);
@@ -708,6 +722,17 @@ export default function AppDetailPage() {
           </div>
         )}
 
+        {/* QA run progress */}
+        {qaProgress && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded border border-onyx-green/30 bg-onyx-green/5 text-sm animate-fade-in-up">
+            <div className="size-5 border-2 border-onyx-green border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="font-medium text-foreground">{qaProgress.step}</span>
+            {qaProgress.runId && (
+              <span className="text-muted-foreground font-mono text-xs">Run {qaProgress.runId.slice(0, 8)}…</span>
+            )}
+          </div>
+        )}
+
         {/* Versions table */}
         <div className="bg-card rounded-none border border-border overflow-hidden">
           {versions.length === 0 ? (
@@ -747,7 +772,6 @@ export default function AppDetailPage() {
                       scenarioName={scenarioName}
                       scenarioDescription={scenarioDescription}
                       scenarioStartUrl={scenarioStartUrl}
-                      scenarioSmokeUrls={scenarioSmokeUrls}
                       scenarioEnvRows={scenarioEnvRows}
                       launching={launching}
                       onToggle={() => toggleVersion(ver.id)}
@@ -757,13 +781,11 @@ export default function AppDetailPage() {
                         setScenarioName("");
                         setScenarioDescription("");
                         setScenarioStartUrl("/");
-                        setScenarioSmokeUrls("");
                         setScenarioEnvRows([{ key: "", value: "" }]);
                       }}
                       onScenarioNameChange={setScenarioName}
                       onScenarioDescriptionChange={setScenarioDescription}
                       onScenarioStartUrlChange={setScenarioStartUrl}
-                      onScenarioSmokeUrlsChange={setScenarioSmokeUrls}
                       onScenarioEnvRowsChange={setScenarioEnvRows}
                       onCreateScenario={(e) => createScenario(e, ver.id)}
                       onDeleteScenario={(scenarioId) => deleteScenario(scenarioId, ver.id)}
@@ -772,6 +794,8 @@ export default function AppDetailPage() {
                       onDeleteWorkflow={(workflowId) => deleteWorkflow(workflowId, ver.id)}
                       onRenameWorkflow={(workflowId, name) => renameWorkflow(workflowId, name, ver.id)}
                       onReplayWorkflow={replayWorkflow}
+                      onRunAutoQA={() => runAutoQA(ver.id, scenarios)}
+                      qaProgress={qaProgress}
                     />
                   );
                 })}
@@ -795,7 +819,6 @@ interface VersionRowProps {
   scenarioName: string;
   scenarioDescription: string;
   scenarioStartUrl: string;
-  scenarioSmokeUrls: string;
   scenarioEnvRows: { key: string; value: string }[];
   launching: string | null;
   onToggle: () => void;
@@ -804,7 +827,6 @@ interface VersionRowProps {
   onScenarioNameChange: (v: string) => void;
   onScenarioDescriptionChange: (v: string) => void;
   onScenarioStartUrlChange: (v: string) => void;
-  onScenarioSmokeUrlsChange: (v: string) => void;
   onScenarioEnvRowsChange: (rows: { key: string; value: string }[]) => void;
   onCreateScenario: (e: React.FormEvent) => void;
   onDeleteScenario: (scenarioId: string) => void;
@@ -813,6 +835,8 @@ interface VersionRowProps {
   onDeleteWorkflow: (workflowId: string) => void;
   onRenameWorkflow: (workflowId: string, name: string) => void;
   onReplayWorkflow: (workflow: WorkflowEntry) => void;
+  onRunAutoQA: () => void;
+  qaProgress: { runId: string; step: string } | null;
 }
 
 function VersionRow({
@@ -824,7 +848,6 @@ function VersionRow({
   scenarioName,
   scenarioDescription,
   scenarioStartUrl,
-  scenarioSmokeUrls,
   scenarioEnvRows,
   launching,
   onToggle,
@@ -833,7 +856,6 @@ function VersionRow({
   onScenarioNameChange,
   onScenarioDescriptionChange,
   onScenarioStartUrlChange,
-  onScenarioSmokeUrlsChange,
   onScenarioEnvRowsChange,
   onCreateScenario,
   onDeleteScenario,
@@ -842,6 +864,8 @@ function VersionRow({
   onDeleteWorkflow,
   onRenameWorkflow,
   onReplayWorkflow,
+  onRunAutoQA,
+  qaProgress,
 }: VersionRowProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -881,20 +905,11 @@ function VersionRow({
               variant="outline" 
               size="sm" 
               className="h-7 text-xs mr-2"
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation();
-                try {
-                  const runRes = await api(`/api/apps/${version.id}/qa-run`, { 
-                    method: "POST", 
-                    body: JSON.stringify({ scenario_id: scenarios?.[0]?.id ?? null }) 
-                  }) as { id: string };
-                  const runId = runRes.id;
-                  await api(`/api/qa-runs/${runId}/execute`, { method: "POST" });
-                  window.location.href = `/qa/${runId}`;
-                } catch (err) {
-                  alert(err instanceof Error ? err.message : "Failed to start QA run");
-                }
+                onRunAutoQA();
               }}
+              disabled={!!qaProgress}
             >
               <FlaskConical className="size-3.5 mr-1.5" />
               Run Auto-QA
@@ -982,17 +997,6 @@ function VersionRow({
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                          Smoke URLs (optional)
-                        </label>
-                        <Input
-                          value={scenarioSmokeUrls}
-                          onChange={(e) => onScenarioSmokeUrlsChange(e.target.value)}
-                          placeholder="/, /cart, /products (blank = default paths)"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                           Environment Variables
                         </label>
                         <div className="space-y-1.5">
@@ -1031,6 +1035,9 @@ function VersionRow({
                             </div>
                           ))}
                         </div>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                          Optional: <code className="bg-muted/50 px-0.5">DEMO_BUG</code>=<code className="bg-muted/50 px-0.5">1</code> makes /cart return 404 for QA demos; omit or set to 0 for a passing run.
+                        </p>
                       </div>
                       <div className="flex justify-end">
                         <Button type="submit" variant="onyx" size="sm">Create Scenario</Button>

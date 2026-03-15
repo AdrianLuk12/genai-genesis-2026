@@ -1,6 +1,7 @@
 import json
 import io
 import os
+import re
 import shutil
 import tarfile
 import tempfile
@@ -13,7 +14,7 @@ from typing import Optional
 import anthropic
 import docker
 import httpx
-from docker.errors import NotFound as DockerNotFound
+from docker.errors import ImageNotFound, NotFound as DockerNotFound
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -655,15 +656,39 @@ async def create_sandbox(body: SandboxCreate):
     if app_version_id:
         labels["version-id"] = app_version_id
 
-    container = client.containers.run(
-        image_name,
-        detach=True,
-        ports={"3000/tcp": port},
-        environment=env,
-        volumes=volumes,
-        labels=labels,
-        name=f"sandbox-{uuid.uuid4().hex[:8]}",
-    )
+    # If using an app-version image, ensure it exists: load from tar if missing (e.g. different machine or image removed)
+    if image_name != TARGET_IMAGE and app_version_id and app_id:
+        try:
+            client.images.get(image_name)
+        except ImageNotFound:
+            tar_path = os.path.join(IMAGES_DIR, app_id, f"{app_version_id}.tar")
+            if not os.path.exists(tar_path):
+                db.close()
+                raise HTTPException(
+                    status_code=503,
+                    detail="App version image not available. Re-upload the version to build the image.",
+                )
+            with open(tar_path, "rb") as f:
+                loaded = client.images.load(f)
+            if loaded:
+                loaded[0].tag(image_name.replace(":latest", ""), tag="latest")
+
+    try:
+        container = client.containers.run(
+            image_name,
+            detach=True,
+            ports={"3000/tcp": port},
+            environment=env,
+            volumes=volumes,
+            labels=labels,
+            name=f"sandbox-{uuid.uuid4().hex[:8]}",
+        )
+    except ImageNotFound:
+        db.close()
+        raise HTTPException(
+            status_code=503,
+            detail="App version image not available. Re-upload the version to build the image.",
+        )
 
     used_ports.add(port)
     sandbox_url = f"http://localhost:{port}/"
@@ -1147,7 +1172,8 @@ def get_qa_run(run_id: str):
         run["version_tag"] = "—"
 
     results = db_conn.execute("SELECT * FROM qa_results WHERE qa_run_id = ?", (run_id,)).fetchall()
-    run["results"] = results
+    run = dict(run)
+    run["results"] = [dict(r) for r in results]
     return run
 
 class QAResultCreate(BaseModel):
@@ -1214,6 +1240,27 @@ def update_qa_run(run_id: str, payload: QARunUpdate):
         )
         db_conn.commit()
     return {"id": run_id, "status": "updated"}
+
+
+def _discover_paths_from_html(sandbox_url: str) -> list[str]:
+    """Discover same-origin paths from the app root HTML (href attributes). No hardcoded paths."""
+    base = sandbox_url.rstrip("/") + "/"
+    try:
+        r = httpx.get(base, timeout=5.0)
+        if r.status_code != 200 or not r.text:
+            return ["/"]
+    except Exception:
+        return ["/"]
+    # Same-origin path links: href="/..." or href='/...'
+    pattern = re.compile(r'''\bhref\s*=\s*["'](/[^"']*)["']''', re.IGNORECASE)
+    seen: set[str] = {"/"}
+    for match in pattern.finditer(r.text):
+        raw = match.group(1).strip()
+        path = raw.split("?")[0].split("#")[0] or "/"
+        if path.startswith("/"):
+            path = path.rstrip("/") or "/"
+            seen.add(path)
+    return ["/"] + sorted(p for p in seen if p != "/")
 
 
 def _run_qa_execution(run_id: str) -> None:
@@ -1292,7 +1339,7 @@ def _run_qa_execution(run_id: str) -> None:
                 client.post(
                     f"/api/qa-runs/{run_id}/results",
                     json={
-                        "issue_type": "smoke",
+                        "issue_type": "request",
                         "description": "Sandbox did not respond within 90 seconds.",
                         "severity": "high",
                     },
@@ -1306,7 +1353,7 @@ def _run_qa_execution(run_id: str) -> None:
                     },
                 )
             else:
-                # Multi-URL smoke check: use scenario smoke_urls if set, else default (includes demo-fail path so user sees a failure)
+                # Multi-URL smoke check: only test that things load. Paths from scenario smoke_urls, or discover from app root.
                 scenario_resp = client.get(f"/api/scenarios/{scenario_id}")
                 config = {}
                 if scenario_resp.status_code == 200:
@@ -1315,8 +1362,8 @@ def _run_qa_execution(run_id: str) -> None:
                 if isinstance(smoke_urls, list) and smoke_urls:
                     smoke_paths = [p if p.startswith("/") else "/" + p for p in smoke_urls]
                 else:
-                    # Default: common paths + one many apps don't implement (so run can show a failure)
-                    smoke_paths = ["/", "/cart", "/products", "/health"]
+                    # Discover paths from app root: fetch "/" and parse same-origin links so we check everything without hardcoding.
+                    smoke_paths = _discover_paths_from_html(sandbox_url)
                 issues_found = 0
                 for path in smoke_paths:
                     try:
@@ -1325,19 +1372,29 @@ def _run_qa_execution(run_id: str) -> None:
                             client.post(
                                 f"/api/qa-runs/{run_id}/results",
                                 json={
-                                    "issue_type": "smoke",
-                                    "description": f"GET {path} returned {r.status_code}.",
+                                    "issue_type": "request",
+                                    "description": f"GET {path} returned {r.status_code}",
                                     "element_id": path,
                                     "severity": "high" if r.status_code >= 500 else "medium",
                                 },
                             )
                             issues_found += 1
-                    except Exception as e:
+                        else:
+                            client.post(
+                                f"/api/qa-runs/{run_id}/results",
+                                json={
+                                    "issue_type": "request",
+                                    "description": f"GET {path} returned 200",
+                                    "element_id": path,
+                                    "severity": "info",
+                                },
+                            )
+                    except Exception:
                         client.post(
                             f"/api/qa-runs/{run_id}/results",
                             json={
-                                "issue_type": "smoke",
-                                "description": f"GET {path} failed: {str(e)[:120]}.",
+                                "issue_type": "request",
+                                "description": f"GET {path} failed",
                                 "element_id": path,
                                 "severity": "high",
                             },

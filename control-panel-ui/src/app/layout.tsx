@@ -28,6 +28,7 @@ export default function RootLayout({
     <html lang="en">
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        suppressHydrationWarning
       >
         <ConfirmProvider>
           <div className="flex h-screen overflow-hidden">
