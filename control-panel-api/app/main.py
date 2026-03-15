@@ -1012,12 +1012,36 @@ Determine the next action."""
                 text = text[:-3]
             text = text.strip()
 
-        # Try to extract JSON object if there's surrounding text
-        if not text.startswith("{"):
-            match = re.search(r'\{[\s\S]*\}', text)
-            if match:
-                text = match.group(0)
+        # Extract the first complete JSON object using brace matching
+        def extract_first_json_object(s: str) -> str:
+            start = s.find("{")
+            if start == -1:
+                return s
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(s)):
+                c = s[i]
+                if escape:
+                    escape = False
+                    continue
+                if c == "\\":
+                    escape = True
+                    continue
+                if c == '"' and not escape:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return s[start:i + 1]
+            return s[start:]
 
+        text = extract_first_json_object(text)
         parsed = json.loads(text)
 
         return AgentStepResponse(
@@ -1044,7 +1068,7 @@ Determine the next action."""
 
 class QARunCreate(BaseModel):
     scenario_id: Optional[str] = None
-    
+
 @app.post("/api/apps/{version_id}/qa-run")
 def start_qa_run(version_id: str, payload: QARunCreate):
     db_conn = get_db()
@@ -1065,7 +1089,7 @@ def get_qa_run(run_id: str):
     run = db_conn.execute("SELECT * FROM qa_runs WHERE id = ?", (run_id,)).fetchone()
     if not run:
         raise HTTPException(status_code=404, detail="QA run not found")
-        
+
     results = db_conn.execute("SELECT * FROM qa_results WHERE qa_run_id = ?", (run_id,)).fetchall()
     run["results"] = results
     return run
@@ -1081,7 +1105,7 @@ class QAResultCreate(BaseModel):
 def add_qa_result(run_id: str, payload: QAResultCreate):
     db_conn = get_db()
     result_id = f"res_{uuid.uuid4().hex[:8]}"
-    
+
     db_conn.execute(
         """
         INSERT INTO qa_results (id, qa_run_id, element_id, issue_type, description, screenshot_url, severity)
@@ -1091,6 +1115,111 @@ def add_qa_result(run_id: str, payload: QAResultCreate):
     )
     db_conn.commit()
     return {"id": result_id, "status": "added"}
+
+
+TASK_GEN_SYSTEM_PROMPT = """You are a QA test planner for a web application. You will be given the main HTML of the app's landing page and a comma-separated list of focus areas from the user.
+
+Your job is to split the focus areas by comma, then generate one specific, concrete user task for EACH focus area. Each task should be a realistic user journey that an AI agent can execute (e.g., "Add a blue t-shirt to the cart and proceed to checkout").
+
+CRITICAL: You MUST return one task per comma-separated focus area. If the user provides "checkout, search, cart", you MUST return exactly 3 tasks. Never combine multiple focus areas into one task.
+
+RULES:
+- Split the focus areas by commas — each comma-separated item = one task
+- Tasks should be specific and actionable, not vague
+- Each task should be completable by navigating and interacting with the visible UI
+- Focus on realistic end-user behaviors: browsing, searching, adding to cart, filtering, form filling, etc.
+- Each task should be 1-2 sentences max
+- Tailor each task to the actual UI elements visible in the HTML
+
+Respond with ONLY a JSON array of strings, no markdown, no extra text:
+["task 1 description", "task 2 description", ...]"""
+
+
+class GenerateTasksRequest(BaseModel):
+    html: str
+    focus: str
+
+
+class GenerateTasksResponse(BaseModel):
+    tasks: list[str]
+
+
+@app.post("/api/agent/generate-tasks")
+async def agent_generate_tasks(body: GenerateTasksRequest):
+    import re
+    import logging
+    logger = logging.getLogger("agent")
+
+    try:
+        logger.info(f"Generating tasks for focus areas: '{body.focus}' from HTML ({len(body.html)} chars)")
+
+        response = claude_client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=2048,
+            system=TASK_GEN_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"Focus areas (comma-separated): {body.focus}\n\nCount of focus areas: {len([x.strip() for x in body.focus.split(',') if x.strip()])}\n\nYou MUST return exactly {len([x.strip() for x in body.focus.split(',') if x.strip()])} tasks — one per focus area.\n\n```html\n{body.html[:80000]}\n```"}],
+        )
+
+        text = response.content[0].text.strip()
+        logger.info(f"Task generation response: {text[:500]}")
+
+        # Remove markdown fences if present
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        # Extract the first complete JSON array using bracket matching
+        def extract_first_json_array(s: str) -> str:
+            start = s.find("[")
+            if start == -1:
+                return s
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(s)):
+                c = s[i]
+                if escape:
+                    escape = False
+                    continue
+                if c == "\\":
+                    escape = True
+                    continue
+                if c == '"' and not escape:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if c == "[":
+                    depth += 1
+                elif c == "]":
+                    depth -= 1
+                    if depth == 0:
+                        return s[start:i + 1]
+            return s[start:]
+
+        text = extract_first_json_array(text)
+        tasks = json.loads(text)
+        if not isinstance(tasks, list):
+            raise ValueError("Expected a JSON array")
+
+        # Fallback: if Claude returned fewer tasks than focus areas,
+        # pad with raw focus area descriptions
+        focus_areas = [x.strip() for x in body.focus.split(",") if x.strip()]
+        if len(tasks) < len(focus_areas):
+            logger.warning(f"Claude returned {len(tasks)} tasks but expected {len(focus_areas)}, padding")
+            for area in focus_areas[len(tasks):]:
+                tasks.append(f"Test the {area} functionality")
+
+        return GenerateTasksResponse(tasks=tasks)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse task generation response: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
+    except Exception as e:
+        logger.error(f"Task generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Task generation error: {str(e)}")
 
 
 # --- Static files (bridge.js for walkthrough capture) ---

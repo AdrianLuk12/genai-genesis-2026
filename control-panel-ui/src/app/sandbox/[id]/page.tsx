@@ -206,6 +206,9 @@ export default function SandboxViewPage() {
   const agentActionsRef = useRef<AgentAction[]>([]);
   const autoAgentFiredRef = useRef(false);
 
+  // Bridge ready state — true once iframe bridge.js sends "bridge-ready"
+  const [bridgeReady, setBridgeReady] = useState(false);
+
   // Click indicator overlay
   const [clickIndicator, setClickIndicator] = useState<ClickIndicator | null>(null);
   const indicatorKeyRef = useRef(0);
@@ -291,6 +294,7 @@ export default function SandboxViewPage() {
 
       // Bridge reinitialized after full-page navigation — re-enable capture if not replaying
       if (type === "bridge-ready") {
+        setBridgeReady(true);
         const path = event.data.path as string;
         // During replay, don't update iframePath — it would change the iframe src
         // and cause a second reload that races with replay commands
@@ -360,18 +364,18 @@ export default function SandboxViewPage() {
     return () => clearTimeout(timer);
   }, [sandboxReady, sandbox, addLog]);
 
-  // Auto-run agent when sandbox is ready and ?agent= query param is present
+  // Auto-run agent when bridge is ready and ?agent= query param is present
   useEffect(() => {
-    if (!sandboxReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
+    if (!bridgeReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
     autoAgentFiredRef.current = true;
     setAgentIntent(autoAgentIntent);
-    // Small delay to ensure iframe bridge is initialized
+    // Short delay to let bridge fully settle after bridge-ready
     const timer = setTimeout(() => {
       runAgentLoop(autoAgentIntent);
-    }, 2000);
+    }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandboxReady, autoAgentIntent, sandbox]);
+  }, [bridgeReady, autoAgentIntent, sandbox]);
 
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
@@ -730,6 +734,22 @@ export default function SandboxViewPage() {
 
     iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
     addLog("agent", agentAbortRef.current ? "Agent stopped" : `Agent finished (${agentActionsRef.current.length} actions)`);
+
+    // Auto-save workflow when triggered via ?agent= query param
+    if (autoAgentIntent && !agentAbortRef.current && agentSteps.length > 0) {
+      try {
+        const workflowName = `Agent: ${(intentOverride || intent).slice(0, 60)}`;
+        await api(`/api/sandboxes/${containerId}/save-workflow`, {
+          method: "POST",
+          body: JSON.stringify({ name: workflowName, steps_json: capturedStepsRef.current }),
+        });
+        addLog("info", `Workflow auto-saved: ${workflowName}`);
+        setMessage("Workflow saved automatically!");
+        setTimeout(() => setMessage(""), 3000);
+      } catch (e) {
+        addLog("error", `Auto-save failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+      }
+    }
     setAgentRunning(false);
     setAgentPhase("");
     setAgentProgress(0);
@@ -923,12 +943,12 @@ export default function SandboxViewPage() {
               type="text"
               value={inlinePrompt.value}
               onChange={(e) => setInlinePrompt({ ...inlinePrompt, value: e.target.value })}
+              onBlur={() => setTimeout(cancelInlinePrompt, 150)}
               onKeyDown={(e) => { if (e.key === "Escape") cancelInlinePrompt(); }}
               className="flex-1 h-8 px-3 text-sm bg-background border border-input outline-none focus:border-ring"
               autoFocus
             />
-            <Button type="submit" variant="onyx" size="xs">Save</Button>
-            <Button type="button" variant="ghost" size="xs" onClick={cancelInlinePrompt}>Cancel</Button>
+            <Button type="submit" variant="onyx" size="xs" onMouseDown={(e) => e.preventDefault()}>Save</Button>
           </form>
         </div>
       )}
