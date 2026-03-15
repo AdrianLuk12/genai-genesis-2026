@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-modal";
 import {
   Monitor,
-  Play,
   Trash2,
-  Save,
-  ExternalLink,
-  Pencil,
   Plus,
   Box,
   ArrowRight,
@@ -29,14 +25,6 @@ interface Sandbox {
   name: string | null;
 }
 
-interface Scenario {
-  id: string;
-  name: string;
-  description: string;
-  config_json: Record<string, unknown>;
-  created_at: string;
-}
-
 interface App {
   id: string;
   name: string;
@@ -46,20 +34,14 @@ interface App {
 
 export default function DashboardPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
-  const [launching, setLaunching] = useState<string | null>(null);
   const { confirm } = useConfirm();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [nameDraft, setNameDraft] = useState("");
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    Promise.all([api("/api/sandboxes"), api("/api/scenarios"), api("/api/apps")])
-      .then(([sbs, scs, aps]) => {
+    Promise.all([api("/api/sandboxes"), api("/api/apps")])
+      .then(([sbs, aps]) => {
         setSandboxes(sbs);
-        setScenarios(scs);
         setApps(aps);
       })
       .catch(console.error)
@@ -76,58 +58,6 @@ export default function DashboardPage() {
     if (!ok) return;
     await api(`/api/sandboxes/${containerId}`, { method: "DELETE" });
     setSandboxes(sandboxes.filter((s) => s.container_id !== containerId));
-  }
-
-  async function saveSandbox(containerId: string) {
-    const ok = await confirm({
-      title: "Save Walkthrough State",
-      description: "The current state will be saved as a new scenario. The sandbox will be destroyed after saving.",
-      confirmText: "Save State",
-    });
-    if (!ok) return;
-    await api(`/api/sandboxes/${containerId}/save`, { method: "POST" });
-    setSandboxes(sandboxes.filter((s) => s.container_id !== containerId));
-  }
-
-  function startRename(containerId: string, currentName: string) {
-    setEditingId(containerId);
-    setNameDraft(currentName);
-    setTimeout(() => nameInputRef.current?.select(), 0);
-  }
-
-  async function commitRename(containerId: string) {
-    setEditingId(null);
-    const trimmed = nameDraft.trim();
-    const current = sandboxes.find((s) => s.container_id === containerId);
-    if (!trimmed || trimmed === current?.name) return;
-    const prev = sandboxes.map((s) => ({ ...s }));
-    setSandboxes((sbs) =>
-      sbs.map((s) =>
-        s.container_id === containerId ? { ...s, name: trimmed } : s
-      )
-    );
-    try {
-      await api(`/api/sandboxes/${containerId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: trimmed }),
-      });
-    } catch {
-      setSandboxes(prev);
-    }
-  }
-
-  async function launchSandbox(scenarioId: string) {
-    setLaunching(scenarioId);
-    try {
-      const result = await api("/api/sandboxes", {
-        method: "POST",
-        body: JSON.stringify({ scenario_id: scenarioId }),
-      });
-      window.location.href = `/sandbox/${result.container_id}`;
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Launch failed");
-      setLaunching(null);
-    }
   }
 
   if (loading) {
@@ -194,30 +124,12 @@ export default function DashboardPage() {
                     className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors"
                   >
                     <td className="py-3 px-4">
-                      {editingId === sb.container_id ? (
-                        <input
-                          ref={nameInputRef}
-                          value={nameDraft}
-                          onChange={(e) => setNameDraft(e.target.value)}
-                          onBlur={() => commitRename(sb.container_id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitRename(sb.container_id);
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          size={Math.max(nameDraft.length, 1)}
-                          className="text-sm font-medium bg-transparent border-b border-onyx-green outline-none"
-                          autoFocus
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 font-medium hover:text-onyx-green transition-colors group"
-                          onClick={() => startRename(sb.container_id, sb.name || "")}
-                        >
-                          {sb.name || `Sandbox :${sb.port}`}
-                          <Pencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
-                        </button>
-                      )}
+                      <Link
+                        href={`/sandbox/${sb.container_id}`}
+                        className="font-medium hover:text-onyx-green transition-colors"
+                      >
+                        {sb.name || `Sandbox :${sb.port}`}
+                      </Link>
                     </td>
                     <td className="py-3 px-4">
                       <Badge variant="success">
@@ -233,19 +145,6 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
-                        <Link href={`/sandbox/${sb.container_id}`}>
-                          <Button variant="ghost" size="icon-xs" title="View">
-                            <ExternalLink className="size-3.5" />
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => saveSandbox(sb.container_id)}
-                          title="Save State"
-                        >
-                          <Save className="size-3.5" />
-                        </Button>
                         <Button
                           variant="ghost"
                           size="icon-xs"

@@ -14,6 +14,7 @@ import {
   Settings,
   Waypoints,
   Box,
+  Share2,
 } from "lucide-react";
 
 interface NavSection {
@@ -45,6 +46,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Insights", href: "/insights", icon: BarChart3 },
       { label: "Tunnels", href: "/tunnels", icon: Waypoints },
+      { label: "Graph", href: "/graph", icon: Share2 },
     ],
   },
 ];
