@@ -116,6 +116,7 @@ export default function AppDetailPage() {
   const [scenarioEnvRows, setScenarioEnvRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
 
   const [launching, setLaunching] = useState<string | null>(null);
+  const [qaProgress, setQaProgress] = useState<{ runId: string; step: string } | null>(null);
 
   const { confirm } = useConfirm();
   const [editingName, setEditingName] = useState(false);
@@ -257,7 +258,7 @@ export default function AppDetailPage() {
       if (dataPath.trim()) {
         formData.append("data_path", dataPath.trim());
       }
-      await new Promise<void>((resolve, reject) => {
+      const newVersion = await new Promise<{ id: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${API_URL}/api/apps/${appId}/versions`);
         xhr.upload.onprogress = (event) => {
@@ -267,7 +268,12 @@ export default function AppDetailPage() {
         };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
+            try {
+              const body = JSON.parse(xhr.responseText);
+              resolve(body);
+            } catch {
+              resolve({ id: "" });
+            }
           } else {
             try {
               const body = JSON.parse(xhr.responseText);
@@ -285,11 +291,36 @@ export default function AppDetailPage() {
       setDataPath("");
       setShowUploadForm(false);
       setUploadProgress(0);
-      loadVersions();
+      await loadVersions();
+      if (newVersion?.id) {
+        setExpandedVersions((prev) => ({ ...prev, [newVersion.id]: true }));
+        setShowScenarioForm((prev) => ({ ...prev, [newVersion.id]: true }));
+        loadVersionScenarios(newVersion.id);
+        loadVersionWorkflows(newVersion.id);
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function runAutoQA(versionId: string, scenarios: Scenario[]) {
+    try {
+      setQaProgress({ runId: "", step: "Starting run…" });
+      const runRes = await api(`/api/apps/${versionId}/qa-run`, {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: scenarios?.[0]?.id ?? null }),
+      }) as { id: string };
+      const runId = runRes.id;
+      setQaProgress({ runId, step: "Launching environment…" });
+      await api(`/api/qa-runs/${runId}/execute`, { method: "POST" });
+      setQaProgress({ runId, step: "Opening report…" });
+      await new Promise((r) => setTimeout(r, 600));
+      window.location.href = `/qa/${runId}`;
+    } catch (err) {
+      setQaProgress(null);
+      alert(err instanceof Error ? err.message : "Failed to start QA run");
     }
   }
 
@@ -312,13 +343,14 @@ export default function AppDetailPage() {
     for (const row of scenarioEnvRows) {
       if (row.key.trim()) env[row.key.trim()] = row.value;
     }
+    const config: Record<string, unknown> = { start_url: scenarioStartUrl, env };
     try {
       await api("/api/scenarios", {
         method: "POST",
         body: JSON.stringify({
           name: scenarioName,
           description: scenarioDescription,
-          config_json: { start_url: scenarioStartUrl, env },
+          config_json: config,
           app_version_id: versionId,
         }),
       });
@@ -690,6 +722,17 @@ export default function AppDetailPage() {
           </div>
         )}
 
+        {/* QA run progress */}
+        {qaProgress && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded border border-onyx-green/30 bg-onyx-green/5 text-sm animate-fade-in-up">
+            <div className="size-5 border-2 border-onyx-green border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="font-medium text-foreground">{qaProgress.step}</span>
+            {qaProgress.runId && (
+              <span className="text-muted-foreground font-mono text-xs">Run {qaProgress.runId.slice(0, 8)}…</span>
+            )}
+          </div>
+        )}
+
         {/* Versions table */}
         <div className="bg-card rounded-none border border-border overflow-hidden">
           {versions.length === 0 ? (
@@ -751,6 +794,8 @@ export default function AppDetailPage() {
                       onDeleteWorkflow={(workflowId) => deleteWorkflow(workflowId, ver.id)}
                       onRenameWorkflow={(workflowId, name) => renameWorkflow(workflowId, name, ver.id)}
                       onReplayWorkflow={replayWorkflow}
+                      onRunAutoQA={() => runAutoQA(ver.id, scenarios)}
+                      qaProgress={qaProgress}
                     />
                   );
                 })}
@@ -790,6 +835,8 @@ interface VersionRowProps {
   onDeleteWorkflow: (workflowId: string) => void;
   onRenameWorkflow: (workflowId: string, name: string) => void;
   onReplayWorkflow: (workflow: WorkflowEntry) => void;
+  onRunAutoQA: () => void;
+  qaProgress: { runId: string; step: string } | null;
 }
 
 function VersionRow({
@@ -817,6 +864,8 @@ function VersionRow({
   onDeleteWorkflow,
   onRenameWorkflow,
   onReplayWorkflow,
+  onRunAutoQA,
+  qaProgress,
 }: VersionRowProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -852,6 +901,19 @@ function VersionRow({
         </td>
         <td className="py-3 px-4">
           <div className="flex items-center justify-end gap-1">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 text-xs mr-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRunAutoQA();
+              }}
+              disabled={!!qaProgress}
+            >
+              <FlaskConical className="size-3.5 mr-1.5" />
+              Run Auto-QA
+            </Button>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -973,6 +1035,9 @@ function VersionRow({
                             </div>
                           ))}
                         </div>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                          Optional: <code className="bg-muted/50 px-0.5">DEMO_BUG</code>=<code className="bg-muted/50 px-0.5">1</code> makes /cart return 404 for QA demos; omit or set to 0 for a passing run.
+                        </p>
                       </div>
                       <div className="flex justify-end">
                         <Button type="submit" variant="onyx" size="sm">Create Scenario</Button>

@@ -1,0 +1,19 @@
+{
+  "name": "genai-genesis-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint:ui": "cd control-panel-ui && npm run lint",
+    "lint:target": "cd target-app-template && npm run lint",
+    "lint:api": "cd control-panel-api && source .venv/bin/activate && ruff check .",
+    "lint": "npm run lint:ui && npm run lint:target && npm run lint:api",
+    "format:api": "cd control-panel-api && source .venv/bin/activate && ruff format ."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "cmdk": "^1.1.1"
+  }
+}

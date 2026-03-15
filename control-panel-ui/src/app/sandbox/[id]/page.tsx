@@ -19,6 +19,7 @@ import {
   ChevronUp,
   ArrowLeft,
   ListVideo,
+  Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { SandboxNavBar } from "@/components/sandbox-nav-bar";
@@ -30,6 +31,7 @@ interface Sandbox {
   container_id: string;
   port: number;
   sandbox_url: string;
+  shareable_url?: string;
   status: string;
   created_at: string;
   name: string | null;
@@ -140,6 +142,7 @@ export default function SandboxViewPage() {
   const containerId = params.id as string;
   const workflowId = searchParams.get("workflow");
   const autoAgentIntent = searchParams.get("agent");
+  const qaRunIdFromUrl = searchParams.get("qa_run_id");
   const initialStartUrl = searchParams.get("startUrl") || "/";
 
   const { confirm } = useConfirm();
@@ -205,6 +208,9 @@ export default function SandboxViewPage() {
   const agentAbortRef = useRef(false);
   const agentActionsRef = useRef<AgentAction[]>([]);
   const autoAgentFiredRef = useRef(false);
+
+  // Bridge ready state — true once iframe bridge.js sends "bridge-ready"
+  const [bridgeReady, setBridgeReady] = useState(false);
 
   // Click indicator overlay
   const [clickIndicator, setClickIndicator] = useState<ClickIndicator | null>(null);
@@ -291,6 +297,7 @@ export default function SandboxViewPage() {
 
       // Bridge reinitialized after full-page navigation — re-enable capture if not replaying
       if (type === "bridge-ready") {
+        setBridgeReady(true);
         const path = event.data.path as string;
         // During replay, don't update iframePath — it would change the iframe src
         // and cause a second reload that races with replay commands
@@ -360,18 +367,18 @@ export default function SandboxViewPage() {
     return () => clearTimeout(timer);
   }, [sandboxReady, sandbox, addLog]);
 
-  // Auto-run agent when sandbox is ready and ?agent= query param is present
+  // Auto-run agent when bridge is ready and ?agent= query param is present
   useEffect(() => {
-    if (!sandboxReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
+    if (!bridgeReady || !autoAgentIntent || !sandbox || autoAgentFiredRef.current) return;
     autoAgentFiredRef.current = true;
     setAgentIntent(autoAgentIntent);
-    // Small delay to ensure iframe bridge is initialized
+    // Short delay to let bridge fully settle after bridge-ready
     const timer = setTimeout(() => {
       runAgentLoop(autoAgentIntent);
-    }, 2000);
+    }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandboxReady, autoAgentIntent, sandbox]);
+  }, [bridgeReady, autoAgentIntent, sandbox]);
 
   const retry = useCallback(() => setPollKey((k) => k + 1), []);
 
@@ -631,6 +638,7 @@ export default function SandboxViewPage() {
     let errorContext: string | null = null;
     let consecutiveFailures = 0;
     let lastUrl = "/";
+    let reportedFailure: string | null = null;
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (agentAbortRef.current) break;
@@ -660,7 +668,9 @@ export default function SandboxViewPage() {
           }),
         });
       } catch (e) {
-        addLog("error", `AI request failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+        const errMsg = e instanceof Error ? e.message : "Unknown error";
+        addLog("error", `AI request failed: ${errMsg}`);
+        reportedFailure = `AI request failed: ${errMsg}`;
         break;
       }
 
@@ -681,7 +691,11 @@ export default function SandboxViewPage() {
           errorContext = `Click failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
+          if (consecutiveFailures >= 3) {
+            reportedFailure = errorContext;
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
           continue;
         }
         consecutiveFailures = 0;
@@ -692,7 +706,11 @@ export default function SandboxViewPage() {
           errorContext = `Type failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
+          if (consecutiveFailures >= 3) {
+            reportedFailure = errorContext;
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
           continue;
         }
         consecutiveFailures = 0;
@@ -730,6 +748,49 @@ export default function SandboxViewPage() {
 
     iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
     addLog("agent", agentAbortRef.current ? "Agent stopped" : `Agent finished (${agentActionsRef.current.length} actions)`);
+
+    // Report resilience-check failure to QA run when qa_run_id is in URL
+    if (qaRunIdFromUrl && reportedFailure) {
+      try {
+        await api(`/api/qa-runs/${qaRunIdFromUrl}/results`, {
+          method: "POST",
+          body: JSON.stringify({
+            issue_type: "resilience",
+            description: reportedFailure,
+            severity: "high",
+          }),
+        });
+        await api(`/api/qa-runs/${qaRunIdFromUrl}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: "failed",
+            completed_at: new Date().toISOString(),
+            issues_found: 1,
+          }),
+        });
+        addLog("info", "Failure recorded in QA report.");
+        setMessage("Failure recorded in QA report.");
+        setTimeout(() => setMessage(""), 4000);
+      } catch (e) {
+        addLog("error", `Could not report to QA run: ${e instanceof Error ? e.message : "Unknown"}`);
+      }
+    }
+
+    // Auto-save workflow when triggered via ?agent= query param
+    if (autoAgentIntent && !agentAbortRef.current && agentSteps.length > 0) {
+      try {
+        const workflowName = `Agent: ${(intentOverride || intent).slice(0, 60)}`;
+        await api(`/api/sandboxes/${containerId}/save-workflow`, {
+          method: "POST",
+          body: JSON.stringify({ name: workflowName, steps_json: capturedStepsRef.current }),
+        });
+        addLog("info", `Workflow auto-saved: ${workflowName}`);
+        setMessage("Workflow saved automatically!");
+        setTimeout(() => setMessage(""), 3000);
+      } catch (e) {
+        addLog("error", `Auto-save failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+      }
+    }
     setAgentRunning(false);
     setAgentPhase("");
     setAgentProgress(0);
@@ -860,6 +921,22 @@ export default function SandboxViewPage() {
 
         {/* Right: action buttons */}
         <div className="flex gap-1 items-center shrink-0">
+          {sandbox.shareable_url && (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                navigator.clipboard.writeText(sandbox.shareable_url!);
+                setMessage("Link copied — share with customer");
+                setTimeout(() => setMessage(""), 2000);
+              }}
+              className="gap-1"
+              title="Copy shareable link for customer"
+            >
+              <Share2 className="size-3" />
+              Copy link for customer
+            </Button>
+          )}
           {!agentRunning && !replaying && (
             <Button
               variant="outline"
@@ -923,12 +1000,12 @@ export default function SandboxViewPage() {
               type="text"
               value={inlinePrompt.value}
               onChange={(e) => setInlinePrompt({ ...inlinePrompt, value: e.target.value })}
+              onBlur={() => setTimeout(cancelInlinePrompt, 150)}
               onKeyDown={(e) => { if (e.key === "Escape") cancelInlinePrompt(); }}
               className="flex-1 h-8 px-3 text-sm bg-background border border-input outline-none focus:border-ring"
               autoFocus
             />
-            <Button type="submit" variant="onyx" size="xs">Save</Button>
-            <Button type="button" variant="ghost" size="xs" onClick={cancelInlinePrompt}>Cancel</Button>
+            <Button type="submit" variant="onyx" size="xs" onMouseDown={(e) => e.preventDefault()}>Save</Button>
           </form>
         </div>
       )}

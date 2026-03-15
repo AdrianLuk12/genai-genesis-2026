@@ -210,6 +210,17 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes node-pulse {
+  0% { transform: scale(1); stroke-opacity: 1; }
+  50% { transform: scale(1.8); stroke-opacity: 0; }
+  100% { transform: scale(1); stroke-opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* ── Base ── */
 
 @layer base {
@@ -236,6 +247,19 @@
   border-radius: 0;
 }
 
+.node-pulse {
+  animation: node-pulse 2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.graph-bg {
+  background-color: #FAF7F2;
+  background-image:
+    linear-gradient(rgba(19, 35, 34, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19, 35, 34, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
 .dot-loading span {
   animation: dot-pulse 1.4s ease-in-out infinite;
 }
@@ -246,7 +270,7 @@
   animation-delay: 0.4s;
 }
 
-/* Monkey Labs style scrollbar */
+/* Q Labs style scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

@@ -15,6 +15,7 @@ import {
   Pencil,
   Search,
   Plus,
+  Share2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -28,6 +29,7 @@ interface Sandbox {
   created_at: string;
   name: string | null;
   app_version_id: string | null;
+  shareable_url?: string;
 }
 
 interface Scenario {
@@ -58,6 +60,7 @@ export default function LivePage() {
   const { confirm } = useConfirm();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -302,7 +305,23 @@ export default function LivePage() {
                     {sb.created_at ? new Date(sb.created_at).toLocaleTimeString() : "—"}
                   </td>
                   <td className="py-3 px-4">
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="flex items-center justify-end gap-1 flex-wrap">
+                      {sb.shareable_url && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => {
+                            navigator.clipboard.writeText(sb.shareable_url!);
+                            setCopiedId(sb.container_id);
+                            setTimeout(() => setCopiedId(null), 2000);
+                          }}
+                          title="Copy shareable link for customer"
+                        >
+                          <Share2 className="size-3" />
+                          {copiedId === sb.container_id ? "Copied!" : "Copy link for customer"}
+                        </Button>
+                      )}
                       <Link href={`/sandbox/${sb.container_id}`}>
                         <Button variant="onyx" size="xs">
                           <ExternalLink className="size-3" />
