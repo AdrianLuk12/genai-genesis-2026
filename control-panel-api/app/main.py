@@ -209,7 +209,7 @@ def _delete_version_resources(db, version_id: str, app_id: str):
         os.remove(tar_path)
 
     # Remove Docker image
-    image_name = f"monkeylab-{app_id}-{version_id}:latest"
+    image_name = f"qlabs-{app_id}-{version_id}:latest"
     try:
         client = get_docker()
         client.images.remove(image_name, force=True)
@@ -287,9 +287,9 @@ async def upload_version(
         loaded = client.images.load(f)
 
     # Re-tag to unique name
-    image_name = f"monkeylab-{app_id}-{version_id}:latest"
+    image_name = f"qlabs-{app_id}-{version_id}:latest"
     if loaded:
-        loaded[0].tag(f"monkeylab-{app_id}-{version_id}", tag="latest")
+        loaded[0].tag(f"qlabs-{app_id}-{version_id}", tag="latest")
 
     # Normalize data_path: strip trailing slashes
     data_path = data_path.rstrip("/") or "/app/data"
@@ -1129,7 +1129,7 @@ def list_qa_runs():
 
     for r in runs:
         if not r.get("app_name"):
-            r["app_name"] = "Storefront Template"
+            r["app_name"] = "Q Labs Storefront"
         if not r.get("version_tag"):
             r["version_tag"] = "—"
         result_count = r.get("result_count") or 0
@@ -1172,7 +1172,7 @@ def get_qa_run(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="QA run not found")
     if not run.get("app_name"):
-        run["app_name"] = "Storefront Template"
+        run["app_name"] = "Q Labs Storefront"
     if not run.get("version_tag"):
         run["version_tag"] = "—"
 

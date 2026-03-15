@@ -16,61 +16,47 @@ API_DIR = os.path.dirname(SCRIPT_DIR)
 DATA_DIR = os.path.join(API_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "platform.db")
 
-# Realistic QA run outcomes
+# Q Labs seed: QA run outcomes
 QA_RUNS = [
-    {"status": "passed", "issues": 0, "tag": "v1.2-beta"},
-    {"status": "failed", "issues": 2, "tag": "v1.2-beta"},
     {"status": "passed", "issues": 0, "tag": "v1.0"},
     {"status": "failed", "issues": 1, "tag": "v1.0"},
-    {"status": "running", "issues": 0, "tag": "v1.2-beta"},
-    {"status": "passed", "issues": 0, "tag": "v1.2-beta"},
-    {"status": "failed", "issues": 3, "tag": "v1.1"},
+    {"status": "failed", "issues": 2, "tag": "v1.1"},
     {"status": "passed", "issues": 0, "tag": "v1.1"},
+    {"status": "failed", "issues": 3, "tag": "v1.2-beta"},
+    {"status": "passed", "issues": 0, "tag": "v1.2-beta"},
     {"status": "failed", "issues": 1, "tag": "v1.2-beta"},
-    {"status": "passed", "issues": 0, "tag": "v1.0"},
+    {"status": "running", "issues": 0, "tag": "v1.2-beta"},
 ]
 
 FAILURE_RESULTS = [
     {
-        "issue_type": "timeout",
-        "description": "Checkout step 2: Confirm button not found within 5000ms. Workflow 'Guest Checkout' failed at step 4.",
-        "element_id": "button[data-testid='confirm-checkout']",
+        "issue_type": "request",
+        "description": "GET /cart returned 404 in Q Labs demo environment.",
+        "element_id": "/cart",
         "severity": "high",
     },
     {
-        "issue_type": "regression",
-        "description": "Product grid failed to load after applying category filter. Console: TypeError on undefined 'filterResults'.",
-        "element_id": "[data-testid='product-grid']",
+        "issue_type": "request",
+        "description": "GET /admin/orders returned 500 when loading order dashboard.",
+        "element_id": "/admin/orders",
         "severity": "critical",
     },
     {
         "issue_type": "assertion",
-        "description": "Cart total did not match expected value after applying discount code. Expected $42.00, got $44.00.",
+        "description": "Cart total mismatch after discount code: expected $42.00, got $44.00.",
         "element_id": "[data-testid='cart-total']",
         "severity": "medium",
     },
     {
         "issue_type": "smoke",
-        "description": "Admin product delete flow: confirmation dialog did not appear; delete button timed out (element not found in DOM after 5000ms).",
-        "element_id": "button[data-testid='confirm-delete']",
-        "severity": "high",
-    },
-    {
-        "issue_type": "console_error",
-        "description": "Uncaught 500 on POST /api/orders when submitting checkout. Response body: Internal Server Error.",
-        "element_id": "form[data-testid='checkout-form']",
-        "severity": "critical",
-    },
-    {
-        "issue_type": "visual",
-        "description": "Header layout broken on viewport 768px; logo overlaps nav. Likely CSS regression in v1.2.",
-        "element_id": "header.navbar",
+        "description": "Smoke check: /faq timed out while loading content.",
+        "element_id": "/faq",
         "severity": "medium",
     },
     {
-        "issue_type": "timeout",
-        "description": "User profile update: Save button never became enabled after editing email field (waited 10s).",
-        "element_id": "button[aria-label='Save profile']",
+        "issue_type": "console_error",
+        "description": "Console error: Uncaught TypeError in product grid when applying filter.",
+        "element_id": "[data-testid='product-grid']",
         "severity": "high",
     },
 ]
@@ -125,12 +111,12 @@ def ensure_app_and_versions(conn):
     app_id = "storefront-app"
     conn.execute(
         "INSERT INTO apps (id, name, description) VALUES (?, ?, ?)",
-        (app_id, "Storefront App", "E-commerce storefront for sandbox testing"),
+        (app_id, "Q Labs Storefront", "E-commerce storefront for sandbox testing"),
     )
     versions = [
-        ("ver-v1.0", app_id, "v1.0", "monkeylab-storefront-app-v1.0:latest"),
-        ("ver-v1.1", app_id, "v1.1", "monkeylab-storefront-app-v1.1:latest"),
-        ("ver-v1.2", app_id, "v1.2-beta", "monkeylab-storefront-app-v1.2:latest"),
+        ("ver-v1.0", app_id, "v1.0", "qlabs-storefront-app-v1.0:latest"),
+        ("ver-v1.1", app_id, "v1.1", "qlabs-storefront-app-v1.1:latest"),
+        ("ver-v1.2", app_id, "v1.2-beta", "qlabs-storefront-app-v1.2:latest"),
     ]
     for vid, aid, tag, image in versions:
         conn.execute(

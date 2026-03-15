@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Monkey Labs",
+  title: "Q Labs",
   description: "Sandbox testing platform",
 };
 

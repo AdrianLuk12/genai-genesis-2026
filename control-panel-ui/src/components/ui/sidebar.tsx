@@ -79,7 +79,7 @@ export function Sidebar() {
           </div>
           {!collapsed && (
             <span className="text-sm font-semibold text-foreground tracking-wide whitespace-nowrap">
-              MONKEY LABS
+              Q LABS
             </span>
           )}
         </Link>
