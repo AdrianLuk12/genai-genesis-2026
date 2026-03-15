@@ -29,17 +29,27 @@ export function SandboxNavBar({
   // Sync path from iframe navigation (clicks within the sandboxed app)
   useEffect(() => {
     if (!syncPath) return;
-    // Only sync if it differs from what we currently show
-    if (syncPath === pathInput) return;
-    // Don't sync while the user is typing
-    if (document.activeElement === inputRef.current) return;
-    setPathInput(syncPath);
-    setHistory((prev) => {
-      const truncated = prev.slice(0, historyIndex + 1);
-      return [...truncated, syncPath];
-    });
-    setHistoryIndex((i) => i + 1);
-  }, [syncPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    
+    // Only update if it actually changed and user isn't typing
+    if (document.activeElement !== inputRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPathInput((prev) => {
+        if (prev === syncPath) return prev;
+        
+        // If it changed, we should also update history
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHistory((histPrev) => {
+          const truncated = histPrev.slice(0, historyIndex + 1);
+          return [...truncated, syncPath];
+        });
+        
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHistoryIndex((i) => i + 1);
+        
+        return syncPath;
+      });
+    }
+  }, [syncPath, historyIndex]);
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < history.length - 1;

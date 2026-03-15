@@ -15,6 +15,7 @@ import {
   Waypoints,
   Box,
   Share2,
+  ShieldAlert,
 } from "lucide-react";
 
 interface NavSection {
@@ -39,6 +40,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Apps", href: "/apps", icon: Box },
       { label: "Live", href: "/live", icon: Monitor, badge: "LIVE" },
       { label: "AI Agent", href: "/agent", icon: Bot, badge: "NEW" },
+      { label: "QA Runs", href: "/qa", icon: ShieldAlert },
     ],
   },
   {

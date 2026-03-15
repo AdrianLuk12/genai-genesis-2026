@@ -19,6 +19,7 @@ import {
   ChevronUp,
   ArrowLeft,
   ListVideo,
+  Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { SandboxNavBar } from "@/components/sandbox-nav-bar";
@@ -30,6 +31,7 @@ interface Sandbox {
   container_id: string;
   port: number;
   sandbox_url: string;
+  shareable_url?: string;
   status: string;
   created_at: string;
   name: string | null;
@@ -140,6 +142,7 @@ export default function SandboxViewPage() {
   const containerId = params.id as string;
   const workflowId = searchParams.get("workflow");
   const autoAgentIntent = searchParams.get("agent");
+  const qaRunIdFromUrl = searchParams.get("qa_run_id");
   const initialStartUrl = searchParams.get("startUrl") || "/";
 
   const { confirm } = useConfirm();
@@ -635,6 +638,7 @@ export default function SandboxViewPage() {
     let errorContext: string | null = null;
     let consecutiveFailures = 0;
     let lastUrl = "/";
+    let reportedFailure: string | null = null;
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (agentAbortRef.current) break;
@@ -664,7 +668,9 @@ export default function SandboxViewPage() {
           }),
         });
       } catch (e) {
-        addLog("error", `AI request failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+        const errMsg = e instanceof Error ? e.message : "Unknown error";
+        addLog("error", `AI request failed: ${errMsg}`);
+        reportedFailure = `AI request failed: ${errMsg}`;
         break;
       }
 
@@ -685,7 +691,11 @@ export default function SandboxViewPage() {
           errorContext = `Click failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
+          if (consecutiveFailures >= 3) {
+            reportedFailure = errorContext;
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
           continue;
         }
         consecutiveFailures = 0;
@@ -696,7 +706,11 @@ export default function SandboxViewPage() {
           errorContext = `Type failed: element not found for selector "${action.selector}"`;
           addLog("error", errorContext);
           consecutiveFailures++;
-          if (consecutiveFailures >= 3) { addLog("error", "Too many consecutive failures, stopping agent"); break; }
+          if (consecutiveFailures >= 3) {
+            reportedFailure = errorContext;
+            addLog("error", "Too many consecutive failures, stopping agent");
+            break;
+          }
           continue;
         }
         consecutiveFailures = 0;
@@ -734,6 +748,33 @@ export default function SandboxViewPage() {
 
     iframeRef.current?.contentWindow?.postMessage({ type: "start-capture" }, targetOrigin);
     addLog("agent", agentAbortRef.current ? "Agent stopped" : `Agent finished (${agentActionsRef.current.length} actions)`);
+
+    // Report resilience-check failure to QA run when qa_run_id is in URL
+    if (qaRunIdFromUrl && reportedFailure) {
+      try {
+        await api(`/api/qa-runs/${qaRunIdFromUrl}/results`, {
+          method: "POST",
+          body: JSON.stringify({
+            issue_type: "resilience",
+            description: reportedFailure,
+            severity: "high",
+          }),
+        });
+        await api(`/api/qa-runs/${qaRunIdFromUrl}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: "failed",
+            completed_at: new Date().toISOString(),
+            issues_found: 1,
+          }),
+        });
+        addLog("info", "Failure recorded in QA report.");
+        setMessage("Failure recorded in QA report.");
+        setTimeout(() => setMessage(""), 4000);
+      } catch (e) {
+        addLog("error", `Could not report to QA run: ${e instanceof Error ? e.message : "Unknown"}`);
+      }
+    }
 
     // Auto-save workflow when triggered via ?agent= query param
     if (autoAgentIntent && !agentAbortRef.current && agentSteps.length > 0) {
@@ -880,6 +921,22 @@ export default function SandboxViewPage() {
 
         {/* Right: action buttons */}
         <div className="flex gap-1 items-center shrink-0">
+          {sandbox.shareable_url && (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                navigator.clipboard.writeText(sandbox.shareable_url!);
+                setMessage("Link copied — share with customer");
+                setTimeout(() => setMessage(""), 2000);
+              }}
+              className="gap-1"
+              title="Copy shareable link for customer"
+            >
+              <Share2 className="size-3" />
+              Copy link for customer
+            </Button>
+          )}
           {!agentRunning && !replaying && (
             <Button
               variant="outline"

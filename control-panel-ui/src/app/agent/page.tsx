@@ -11,6 +11,7 @@ import {
   XCircle,
   Sparkles,
   ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -78,6 +79,33 @@ export default function AgentPage() {
       prev.map((j) => (j.id === id ? { ...j, ...patch } : j))
     );
   }, []);
+
+  const RESILIENCE_INTENT =
+    "Probe different parts of the app in order: (1) Search or homepage — try empty string then a very long string in one input. (2) Go to cart or checkout — try negative number or zero in a quantity field, or special characters in a text field. (3) Any other form on a different page. Use a different form or page for each probe; do not repeat the same field. Note any validation error, console error, or server error.";
+
+  async function startResilienceCheck() {
+    if (!selectedScenario || phase !== "idle") return;
+    const scenario = scenarios.find((s) => s.id === selectedScenario);
+    if (!scenario?.app_version_id) {
+      alert("Selected scenario has no app version.");
+      return;
+    }
+    try {
+      const runRes = await api(`/api/apps/${scenario.app_version_id}/qa-run`, {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: selectedScenario }),
+      }) as { id: string };
+      const sandboxRes = await api("/api/sandboxes", {
+        method: "POST",
+        body: JSON.stringify({ scenario_id: selectedScenario }),
+      }) as { container_id: string };
+      const qaRunId = runRes.id;
+      const url = `/sandbox/${sandboxRes.container_id}?agent=${encodeURIComponent(RESILIENCE_INTENT)}&qa_run_id=${encodeURIComponent(qaRunId)}`;
+      window.location.href = url;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to start resilience check");
+    }
+  }
 
   async function startMultiAgent() {
     if (!selectedScenario || !focus.trim()) return;
@@ -276,25 +304,37 @@ export default function AgentPage() {
           </p>
         </div>
 
-        <Button
-          variant="onyx"
-          onClick={startMultiAgent}
-          disabled={!selectedScenario || !focus.trim() || phase !== "idle"}
-          className="gap-2"
-        >
-          {phase === "idle" ? (
-            <>
-              <Play className="size-4" />
-              Generate & Run Agents
-            </>
-          ) : (
-            <span className="dot-loading">
-              Working<span>.</span>
-              <span>.</span>
-              <span>.</span>
-            </span>
-          )}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="onyx"
+            onClick={startMultiAgent}
+            disabled={!selectedScenario || !focus.trim() || phase !== "idle"}
+            className="gap-2"
+          >
+            {phase === "idle" ? (
+              <>
+                <Play className="size-4" />
+                Generate & Run Agents
+              </>
+            ) : (
+              <span className="dot-loading">
+                Working<span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={startResilienceCheck}
+            disabled={!selectedScenario || phase !== "idle"}
+            className="gap-2"
+            title="Run a single sandbox that probes forms and inputs with edge-case values and records any failures to the QA report"
+          >
+            <ShieldAlert className="size-4" />
+            Run resilience check
+          </Button>
+        </div>
       </div>
 
       {/* Generating status */}

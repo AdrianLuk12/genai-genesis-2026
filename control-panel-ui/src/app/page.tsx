@@ -12,6 +12,7 @@ import {
   Plus,
   Box,
   ArrowRight,
+  Share2,
 } from "lucide-react";
 
 interface Sandbox {
@@ -23,6 +24,7 @@ interface Sandbox {
   status: string;
   created_at: string;
   name: string | null;
+  shareable_url?: string;
 }
 
 interface App {
@@ -36,6 +38,7 @@ export default function DashboardPage() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const { confirm } = useConfirm();
 
   useEffect(() => {
@@ -145,6 +148,22 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
+                        {sb.shareable_url && (
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => {
+                              navigator.clipboard.writeText(sb.shareable_url!);
+                              setCopiedId(sb.container_id);
+                              setTimeout(() => setCopiedId(null), 2000);
+                            }}
+                            title="Copy shareable link for customer"
+                          >
+                            <Share2 className="size-3" />
+                            {copiedId === sb.container_id ? "Copied!" : "Copy link for customer"}
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon-xs"

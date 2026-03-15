@@ -6,3 +6,4 @@ python-dotenv
 httpx
 anthropic
 ibm-db
+ruff

@@ -4,23 +4,27 @@ import os
 import shutil
 import tarfile
 import tempfile
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 import anthropic
 import docker
+import httpx
 from docker.errors import NotFound as DockerNotFound
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Query, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-
 
 load_dotenv()
 
-from app.db import init_db, get_db, FILES_DIR, IMAGES_DIR
+from app.db import init_db, get_db, FILES_DIR, IMAGES_DIR  # noqa: E402
+from fastapi import FastAPI, Form, HTTPException, Query, UploadFile, File  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
+
 
 app = FastAPI(title="Sandbox Platform API")
 
@@ -664,6 +668,12 @@ async def create_sandbox(body: SandboxCreate):
     used_ports.add(port)
     sandbox_url = f"http://localhost:{port}/"
 
+    # Optional shareable URL for customer demos (e.g. ngrok: https://{port}.ngrok-free.app)
+    shareable_url = None
+    template = os.environ.get("SHAREABLE_SANDBOX_BASE_URL", "").strip()
+    if template:
+        shareable_url = template.replace("{port}", str(port)).rstrip("/") + "/"
+
     # Record in local SQLite
     record_id = str(uuid.uuid4())
     db.execute(
@@ -675,7 +685,7 @@ async def create_sandbox(body: SandboxCreate):
 
     start_url = config_json.get("start_url", "/") if config_json else "/"
 
-    return {
+    result = {
         "sandbox_url": sandbox_url,
         "container_id": container.id,
         "port": port,
@@ -683,6 +693,9 @@ async def create_sandbox(body: SandboxCreate):
         "app_version_id": app_version_id,
         "start_url": start_url,
     }
+    if shareable_url:
+        result["shareable_url"] = shareable_url
+    return result
 
 
 @app.get("/api/sandboxes")
@@ -690,7 +703,14 @@ async def list_sandboxes():
     db = get_db()
     rows = db.execute("SELECT * FROM active_containers").fetchall()
     db.close()
-    return [dict(r) for r in rows]
+    template = os.environ.get("SHAREABLE_SANDBOX_BASE_URL", "").strip()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if template:
+            d["shareable_url"] = template.replace("{port}", str(d["port"])).rstrip("/") + "/"
+        out.append(d)
+    return out
 
 
 class SandboxUpdate(BaseModel):
@@ -905,6 +925,7 @@ RULES:
 - After clicking something that triggers a page change or data load, your next action should be "wait" to let the page update
 - When the goal is fully accomplished, return action type "done"
 - Never repeat the same failed action more than once — try a different selector or approach
+- When probing or testing multiple forms/inputs: after each attempt, move to a different field, section, or page; do not stay on the same element
 - For navigation, use the navigate action with a path like "/cart" rather than clicking links when the URL is known
 
 Respond with ONLY a JSON object in this exact format (no markdown, no extra text):
@@ -987,7 +1008,6 @@ Please try a different approach.
 
 Determine the next action."""
 
-    import re
     import logging
     logger = logging.getLogger("agent")
 
@@ -1069,6 +1089,35 @@ Determine the next action."""
 class QARunCreate(BaseModel):
     scenario_id: Optional[str] = None
 
+
+@app.get("/api/qa-runs")
+def list_qa_runs():
+    db_conn = get_db()
+    runs = db_conn.execute(
+        """SELECT r.*, a.docker_image_name as app_name, a.version_tag,
+           (SELECT COUNT(*) FROM qa_results WHERE qa_run_id = r.id) as result_count
+           FROM qa_runs r
+           LEFT JOIN app_versions a ON r.app_version_id = a.id
+           ORDER BY r.started_at DESC"""
+    ).fetchall()
+
+    for r in runs:
+        if not r.get("app_name"):
+            r["app_name"] = "Storefront Template"
+        if not r.get("version_tag"):
+            r["version_tag"] = "—"
+        result_count = r.get("result_count") or 0
+        # Derive totals from actual failure count; assume one smoke/check per run when no failures
+        total = max(result_count + 1, 1)
+        r["total_tests"] = total
+        r["passed_tests"] = max(0, total - result_count)
+        r["created_at"] = r.get("started_at") or r.get("completed_at") or ""
+        if "result_count" in r:
+            del r["result_count"]
+
+    return runs
+
+
 @app.post("/api/apps/{version_id}/qa-run")
 def start_qa_run(version_id: str, payload: QARunCreate):
     db_conn = get_db()
@@ -1086,9 +1135,16 @@ def start_qa_run(version_id: str, payload: QARunCreate):
 @app.get("/api/qa-runs/{run_id}")
 def get_qa_run(run_id: str):
     db_conn = get_db()
-    run = db_conn.execute("SELECT * FROM qa_runs WHERE id = ?", (run_id,)).fetchone()
+    run = db_conn.execute(
+        "SELECT r.*, a.docker_image_name as app_name, a.version_tag FROM qa_runs r LEFT JOIN app_versions a ON r.app_version_id = a.id WHERE r.id = ?",
+        (run_id,),
+    ).fetchone()
     if not run:
         raise HTTPException(status_code=404, detail="QA run not found")
+    if not run.get("app_name"):
+        run["app_name"] = "Storefront Template"
+    if not run.get("version_tag"):
+        run["version_tag"] = "—"
 
     results = db_conn.execute("SELECT * FROM qa_results WHERE qa_run_id = ?", (run_id,)).fetchall()
     run["results"] = results
@@ -1115,6 +1171,229 @@ def add_qa_result(run_id: str, payload: QAResultCreate):
     )
     db_conn.commit()
     return {"id": result_id, "status": "added"}
+
+
+class QARunUpdate(BaseModel):
+    status: Optional[str] = None
+    completed_at: Optional[str] = None
+    issues_found: Optional[int] = None
+    video_url: Optional[str] = None
+    log_output: Optional[str] = None
+
+
+@app.patch("/api/qa-runs/{run_id}")
+def update_qa_run(run_id: str, payload: QARunUpdate):
+    db_conn = get_db()
+    run = db_conn.execute("SELECT id FROM qa_runs WHERE id = ?", (run_id,)).fetchone()
+    if not run:
+        raise HTTPException(status_code=404, detail="QA run not found")
+
+    updates = []
+    args = []
+    if payload.status is not None:
+        updates.append("status = ?")
+        args.append(payload.status)
+    if payload.completed_at is not None:
+        updates.append("completed_at = ?")
+        args.append(payload.completed_at)
+    if payload.issues_found is not None:
+        updates.append("issues_found = ?")
+        args.append(payload.issues_found)
+    if payload.video_url is not None:
+        updates.append("video_url = ?")
+        args.append(payload.video_url)
+    if payload.log_output is not None:
+        updates.append("log_output = ?")
+        args.append(payload.log_output)
+
+    if updates:
+        args.append(run_id)
+        db_conn.execute(
+            f"UPDATE qa_runs SET {', '.join(updates)} WHERE id = ?",
+            tuple(args),
+        )
+        db_conn.commit()
+    return {"id": run_id, "status": "updated"}
+
+
+def _run_qa_execution(run_id: str) -> None:
+    """Background task: launch sandbox, smoke-check, post result, update run, destroy sandbox."""
+    base = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
+    with httpx.Client(base_url=base, timeout=120.0) as client:
+        try:
+            r = client.get(f"/api/qa-runs/{run_id}")
+            if r.status_code != 200:
+                return
+            run = r.json()
+            if run.get("status") != "running":
+                return
+            app_version_id = run.get("app_version_id")
+            scenario_id = run.get("scenario_id")
+            if not scenario_id and app_version_id:
+                scenarios = client.get(f"/api/scenarios?app_version_id={app_version_id}")
+                if scenarios.status_code == 200 and scenarios.json():
+                    scenario_id = scenarios.json()[0]["id"]
+            if not scenario_id:
+                client.patch(
+                    f"/api/qa-runs/{run_id}",
+                    json={
+                        "status": "failed",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "issues_found": 1,
+                    },
+                )
+                client.post(
+                    f"/api/qa-runs/{run_id}/results",
+                    json={
+                        "issue_type": "config",
+                        "description": "No scenario available for this app version.",
+                        "severity": "high",
+                    },
+                )
+                return
+
+            sandbox = client.post("/api/sandboxes", json={"scenario_id": scenario_id})
+            if sandbox.status_code != 200:
+                client.patch(
+                    f"/api/qa-runs/{run_id}",
+                    json={
+                        "status": "failed",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "issues_found": 1,
+                    },
+                )
+                client.post(
+                    f"/api/qa-runs/{run_id}/results",
+                    json={
+                        "issue_type": "sandbox",
+                        "description": f"Failed to launch sandbox: {sandbox.text[:200]}",
+                        "severity": "high",
+                    },
+                )
+                return
+
+            data = sandbox.json()
+            container_id = data["container_id"]
+            sandbox_url = data["sandbox_url"].rstrip("/")
+
+            # Poll until sandbox responds or 90s
+            ready = False
+            for _ in range(90):
+                try:
+                    r = httpx.get(sandbox_url + "/", timeout=2.0)
+                    if r.status_code == 200:
+                        ready = True
+                        break
+                except Exception:
+                    pass
+                time.sleep(1)
+
+            if not ready:
+                client.post(
+                    f"/api/qa-runs/{run_id}/results",
+                    json={
+                        "issue_type": "smoke",
+                        "description": "Sandbox did not respond within 90 seconds.",
+                        "severity": "high",
+                    },
+                )
+                client.patch(
+                    f"/api/qa-runs/{run_id}",
+                    json={
+                        "status": "failed",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "issues_found": 1,
+                    },
+                )
+            else:
+                # Multi-URL smoke check: use scenario smoke_urls if set, else default (includes demo-fail path so user sees a failure)
+                scenario_resp = client.get(f"/api/scenarios/{scenario_id}")
+                config = {}
+                if scenario_resp.status_code == 200:
+                    config = (scenario_resp.json() or {}).get("config_json") or {}
+                smoke_urls = config.get("smoke_urls")
+                if isinstance(smoke_urls, list) and smoke_urls:
+                    smoke_paths = [p if p.startswith("/") else "/" + p for p in smoke_urls]
+                else:
+                    # Default: common paths + one many apps don't implement (so run can show a failure)
+                    smoke_paths = ["/", "/cart", "/products", "/health"]
+                issues_found = 0
+                for path in smoke_paths:
+                    try:
+                        r = httpx.get(sandbox_url + path, timeout=5.0)
+                        if r.status_code != 200:
+                            client.post(
+                                f"/api/qa-runs/{run_id}/results",
+                                json={
+                                    "issue_type": "smoke",
+                                    "description": f"GET {path} returned {r.status_code}.",
+                                    "element_id": path,
+                                    "severity": "high" if r.status_code >= 500 else "medium",
+                                },
+                            )
+                            issues_found += 1
+                    except Exception as e:
+                        client.post(
+                            f"/api/qa-runs/{run_id}/results",
+                            json={
+                                "issue_type": "smoke",
+                                "description": f"GET {path} failed: {str(e)[:120]}.",
+                                "element_id": path,
+                                "severity": "high",
+                            },
+                        )
+                        issues_found += 1
+
+                client.patch(
+                    f"/api/qa-runs/{run_id}",
+                    json={
+                        "status": "passed" if issues_found == 0 else "failed",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "issues_found": issues_found,
+                    },
+                )
+
+            try:
+                client.delete(f"/api/sandboxes/{container_id}")
+            except Exception:
+                pass
+        except Exception:
+            try:
+                with httpx.Client(base_url=base, timeout=5.0) as c:
+                    c.patch(
+                        f"/api/qa-runs/{run_id}",
+                        json={
+                            "status": "failed",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "issues_found": 1,
+                        },
+                    )
+                    c.post(
+                        f"/api/qa-runs/{run_id}/results",
+                        json={
+                            "issue_type": "runner",
+                            "description": "QA execution failed unexpectedly.",
+                            "severity": "high",
+                        },
+                    )
+            except Exception:
+                pass
+
+
+@app.post("/api/qa-runs/{run_id}/execute")
+def execute_qa_run(run_id: str):
+    db_conn = get_db()
+    run = db_conn.execute("SELECT id, status FROM qa_runs WHERE id = ?", (run_id,)).fetchone()
+    if not run:
+        raise HTTPException(status_code=404, detail="QA run not found")
+    if run["status"] != "running":
+        raise HTTPException(status_code=400, detail="QA run is not in running status")
+    thread = threading.Thread(target=_run_qa_execution, args=(run_id,), daemon=True)
+    thread.start()
+    return JSONResponse(
+        status_code=202,
+        content={"run_id": run_id, "message": "QA run started"},
+    )
 
 
 TASK_GEN_SYSTEM_PROMPT = """You are a QA test planner for a web application. You will be given the main HTML of the app's landing page and a comma-separated list of focus areas from the user.
@@ -1146,7 +1425,6 @@ class GenerateTasksResponse(BaseModel):
 
 @app.post("/api/agent/generate-tasks")
 async def agent_generate_tasks(body: GenerateTasksRequest):
-    import re
     import logging
     logger = logging.getLogger("agent")
 

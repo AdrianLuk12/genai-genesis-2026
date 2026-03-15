@@ -113,6 +113,7 @@ export default function AppDetailPage() {
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioDescription, setScenarioDescription] = useState("");
   const [scenarioStartUrl, setScenarioStartUrl] = useState("/");
+  const [scenarioSmokeUrls, setScenarioSmokeUrls] = useState("");
   const [scenarioEnvRows, setScenarioEnvRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
 
   const [launching, setLaunching] = useState<string | null>(null);
@@ -257,7 +258,7 @@ export default function AppDetailPage() {
       if (dataPath.trim()) {
         formData.append("data_path", dataPath.trim());
       }
-      await new Promise<void>((resolve, reject) => {
+      const newVersion = await new Promise<{ id: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${API_URL}/api/apps/${appId}/versions`);
         xhr.upload.onprogress = (event) => {
@@ -267,7 +268,12 @@ export default function AppDetailPage() {
         };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
+            try {
+              const body = JSON.parse(xhr.responseText);
+              resolve(body);
+            } catch {
+              resolve({ id: "" });
+            }
           } else {
             try {
               const body = JSON.parse(xhr.responseText);
@@ -285,7 +291,13 @@ export default function AppDetailPage() {
       setDataPath("");
       setShowUploadForm(false);
       setUploadProgress(0);
-      loadVersions();
+      await loadVersions();
+      if (newVersion?.id) {
+        setExpandedVersions((prev) => ({ ...prev, [newVersion.id]: true }));
+        setShowScenarioForm((prev) => ({ ...prev, [newVersion.id]: true }));
+        loadVersionScenarios(newVersion.id);
+        loadVersionWorkflows(newVersion.id);
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -312,19 +324,25 @@ export default function AppDetailPage() {
     for (const row of scenarioEnvRows) {
       if (row.key.trim()) env[row.key.trim()] = row.value;
     }
+    const config: Record<string, unknown> = { start_url: scenarioStartUrl, env };
+    const smokeUrlsTrimmed = scenarioSmokeUrls.trim();
+    if (smokeUrlsTrimmed) {
+      config.smoke_urls = smokeUrlsTrimmed.split(",").map((p) => (p.trim().startsWith("/") ? p.trim() : "/" + p.trim()));
+    }
     try {
       await api("/api/scenarios", {
         method: "POST",
         body: JSON.stringify({
           name: scenarioName,
           description: scenarioDescription,
-          config_json: { start_url: scenarioStartUrl, env },
+          config_json: config,
           app_version_id: versionId,
         }),
       });
       setScenarioName("");
       setScenarioDescription("");
       setScenarioStartUrl("/");
+      setScenarioSmokeUrls("");
       setScenarioEnvRows([{ key: "", value: "" }]);
       setShowScenarioForm((prev) => ({ ...prev, [versionId]: false }));
       loadVersionScenarios(versionId);
@@ -729,6 +747,7 @@ export default function AppDetailPage() {
                       scenarioName={scenarioName}
                       scenarioDescription={scenarioDescription}
                       scenarioStartUrl={scenarioStartUrl}
+                      scenarioSmokeUrls={scenarioSmokeUrls}
                       scenarioEnvRows={scenarioEnvRows}
                       launching={launching}
                       onToggle={() => toggleVersion(ver.id)}
@@ -738,11 +757,13 @@ export default function AppDetailPage() {
                         setScenarioName("");
                         setScenarioDescription("");
                         setScenarioStartUrl("/");
+                        setScenarioSmokeUrls("");
                         setScenarioEnvRows([{ key: "", value: "" }]);
                       }}
                       onScenarioNameChange={setScenarioName}
                       onScenarioDescriptionChange={setScenarioDescription}
                       onScenarioStartUrlChange={setScenarioStartUrl}
+                      onScenarioSmokeUrlsChange={setScenarioSmokeUrls}
                       onScenarioEnvRowsChange={setScenarioEnvRows}
                       onCreateScenario={(e) => createScenario(e, ver.id)}
                       onDeleteScenario={(scenarioId) => deleteScenario(scenarioId, ver.id)}
@@ -774,6 +795,7 @@ interface VersionRowProps {
   scenarioName: string;
   scenarioDescription: string;
   scenarioStartUrl: string;
+  scenarioSmokeUrls: string;
   scenarioEnvRows: { key: string; value: string }[];
   launching: string | null;
   onToggle: () => void;
@@ -782,6 +804,7 @@ interface VersionRowProps {
   onScenarioNameChange: (v: string) => void;
   onScenarioDescriptionChange: (v: string) => void;
   onScenarioStartUrlChange: (v: string) => void;
+  onScenarioSmokeUrlsChange: (v: string) => void;
   onScenarioEnvRowsChange: (rows: { key: string; value: string }[]) => void;
   onCreateScenario: (e: React.FormEvent) => void;
   onDeleteScenario: (scenarioId: string) => void;
@@ -801,6 +824,7 @@ function VersionRow({
   scenarioName,
   scenarioDescription,
   scenarioStartUrl,
+  scenarioSmokeUrls,
   scenarioEnvRows,
   launching,
   onToggle,
@@ -809,6 +833,7 @@ function VersionRow({
   onScenarioNameChange,
   onScenarioDescriptionChange,
   onScenarioStartUrlChange,
+  onScenarioSmokeUrlsChange,
   onScenarioEnvRowsChange,
   onCreateScenario,
   onDeleteScenario,
@@ -852,6 +877,28 @@ function VersionRow({
         </td>
         <td className="py-3 px-4">
           <div className="flex items-center justify-end gap-1">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 text-xs mr-2"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const runRes = await api(`/api/apps/${version.id}/qa-run`, { 
+                    method: "POST", 
+                    body: JSON.stringify({ scenario_id: scenarios?.[0]?.id ?? null }) 
+                  }) as { id: string };
+                  const runId = runRes.id;
+                  await api(`/api/qa-runs/${runId}/execute`, { method: "POST" });
+                  window.location.href = `/qa/${runId}`;
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to start QA run");
+                }
+              }}
+            >
+              <FlaskConical className="size-3.5 mr-1.5" />
+              Run Auto-QA
+            </Button>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -930,6 +977,17 @@ function VersionRow({
                           value={scenarioStartUrl}
                           onChange={(e) => onScenarioStartUrlChange(e.target.value)}
                           placeholder="/"
+                          className="font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                          Smoke URLs (optional)
+                        </label>
+                        <Input
+                          value={scenarioSmokeUrls}
+                          onChange={(e) => onScenarioSmokeUrlsChange(e.target.value)}
+                          placeholder="/, /cart, /products (blank = default paths)"
                           className="font-mono"
                         />
                       </div>
