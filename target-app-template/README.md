@@ -1,6 +1,6 @@
 # Target App Template
 
-Containerized sample storefront app used by the Sandbox Platform when launching sandboxes.
+Containerized sample storefront app used by **Q Labs** when launching sandboxes and running Auto QA. It demonstrates a typical target: Next.js, SQLite, and Faker-based seed data that can be driven by scenarios (env, seed DB, `SCENARIO_CONFIG`).
 
 ## Stack
 
@@ -29,12 +29,18 @@ Open `http://localhost:3000`.
 
 See `.env.example` for all available variables.
 
-## Docker (used by control-panel-api)
+## Docker (used by Q Labs control-panel-api)
 
 Build image:
 
 ```bash
 docker build -t sandbox-target-app .
+```
+
+For Q Labs, you can tag with the `qlabs-` prefix so the API finds it by app/version (e.g. `qlabs-storefront-app-v1.0:latest`). Export for upload in the UI:
+
+```bash
+docker save qlabs-storefront-app-v1.0:latest -o qlabs-storefront-app-v1.0.tar
 ```
 
 Run manually:
@@ -43,7 +49,11 @@ Run manually:
 docker run --rm -p 3000:3000 sandbox-target-app
 ```
 
-The API launches this image and maps container `3000` to host ports `8001-8050`.
+The control panel API launches this image and maps container port `3000` to host ports `8001–8050`.
+
+### Demo bug (for QA demos)
+
+Set `DEMO_BUG=1` in the scenario env (or when running the container) to make `/cart` return 404. Useful for demonstrating Auto QA failure detection; fix by deploying a new version without the bug.
 
 ## Build / Lint
 
@@ -51,3 +61,8 @@ The API launches this image and maps container `3000` to host ports `8001-8050`.
 npm run build
 npm run lint
 ```
+
+## See also
+
+- Root [README](../../README.md) — Q Labs overview, getting started, and API summary.
+- [control-panel-api](../control-panel-api/README.md) — How the API loads and runs this image for sandboxes and Auto QA.

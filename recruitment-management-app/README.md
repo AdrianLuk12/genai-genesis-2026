@@ -1,8 +1,6 @@
 # Recruitment Management App
 
-Recruitment-focused sample app built with Next.js App Router and TypeScript.
-
-This app is designed to be managed by the Sandbox Platform (control panel), similar to other sample target apps, while keeping all product functionality within the recruitment domain.
+Recruitment-focused sample app built with Next.js App Router and TypeScript. It can be used as a second **Q Labs** target app (alongside the storefront template): register it in the control panel, upload a Docker image, define scenarios, and run Auto QA or launch sandboxes. All product functionality stays within the recruitment domain.
 
 ## Scope
 
@@ -129,3 +127,7 @@ Foreign keys use `ON DELETE CASCADE`: deleting a job removes its candidates and 
 ```bash
 npm run build
 ```
+
+## See also
+
+- Root [README](../README.md) — Q Labs overview and how to run the control panel and add target apps.
